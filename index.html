@@ -375,6 +375,8 @@
     const CRED_ID = "asknelson-xai";
     const DEFAULT_PROMPT = "You are AskNelson, a helpful, clear, and slightly witty assistant powered by xAI Grok.";
     const DEFAULT_BASE = "https://api.x.ai/v1";
+    // Filled in once the asknelson-proxy Cloudflare Worker is deployed.
+    const PROXY_BASE = "";
     const DB_NAME = "asknelson";
     const DB_STORE = "kv";
 
@@ -671,7 +673,51 @@
     }
     function closeSettings() { $("modal").classList.remove("open"); }
 
+    function apiBases(s) {
+      const bases = [];
+      const add = (u) => {
+        if (!u) return;
+        const n = String(u).replace(/\/$/, "");
+        if (n && !bases.includes(n)) bases.push(n);
+      };
+      add(s && s.baseUrl);
+      add(PROXY_BASE);
+      add(DEFAULT_BASE);
+      return bases;
+    }
+    function isCorsFailure(err) {
+      const msg = String(err && (err.message || err) || "");
+      return err && (err.name === "TypeError" || /Failed to fetch|NetworkError|CORS|Load failed/i.test(msg));
+    }
+    async function postChat(payload, s, signal) {
+      const body = JSON.stringify(payload);
+      const headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + getKey()
+      };
+      const bases = apiBases(s);
+      let lastErr = null;
+      for (let i = 0; i < bases.length; i++) {
+        const base = bases[i];
+        try {
+          const res = await fetch(`${base}/chat/completions`, {
+            method: "POST",
+            headers,
+            body,
+            signal
+          });
+          return res;
+        } catch (err) {
+          if (err && err.name === "AbortError") throw err;
+          lastErr = err;
+          if (!isCorsFailure(err) || i === bases.length - 1) throw err;
+        }
+      }
+      throw lastErr || new Error("Request failed");
+    }
+
     async function sendMessage() {
+
       if (state.sending) return;
       const text = $("input").value.trim();
       if (!text) return;
@@ -692,7 +738,6 @@
       state.sending = true;
       $("send").disabled = true;
       const s = loadSettings();
-      const base = (s.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
       const messages = [
         { role: "system", content: s.systemPrompt || DEFAULT_PROMPT },
         ...c.messages
@@ -702,19 +747,11 @@
       const ctrl = new AbortController();
       state.abort = ctrl;
       try {
-        const res = await fetch(`${base}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + getKey()
-          },
-          body: JSON.stringify({
-            model: s.model || "grok-4.7",
-            messages,
-            stream: true
-          }),
-          signal: ctrl.signal
-        });
+        const res = await postChat({
+          model: s.model || "grok-4.7",
+          messages,
+          stream: true
+        }, s, ctrl.signal);
         if (!res.ok) {
           let detail = await res.text();
           try { detail = JSON.parse(detail).error || detail; } catch {}
@@ -754,9 +791,12 @@
           if (!pending.content) pending.content = "(Stopped)";
         } else {
           c.messages.pop();
+          const cors = isCorsFailure(err);
           c.messages.push({
             role: "error",
-            content: "Request failed: " + (err.message || err),
+            content: cors
+              ? "The browser blocked the request to api.x.ai (CORS preflight failed). AskNelson will retry through a small proxy once it is deployed; you can also paste a proxy API base URL in Settings. If you use Microsoft Edge, try turning off Tracking Prevention for this site, or use Chrome."
+              : "Request failed: " + (err.message || err),
             ts: Date.now()
           });
         }

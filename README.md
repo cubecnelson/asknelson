@@ -24,9 +24,17 @@ python3 -m http.server 8080
 
 Then open [http://localhost:8080](http://localhost:8080).
 
-## Optional proxy
+## API proxy
 
-Direct browser calls to `https://api.x.ai/v1/chat/completions` currently work (CORS is allowed). If that ever changes, set a custom API base URL in Settings to a small backend or Cloudflare Worker that forwards to xAI and holds the key as a server secret.
+Some browsers (notably Microsoft Edge with Tracking Prevention) fail the CORS preflight to `https://api.x.ai/v1/chat/completions`, even though the API itself returns the correct CORS headers. AskNelson can retry through a small Cloudflare Worker in `proxy/` that only forwards `POST /v1/chat/completions` and adds CORS for this GitHub Pages origin. Your API key still stays in the browser; the worker does not store it.
+
+Deploy from `proxy/`:
+
+```bash
+npx wrangler deploy
+```
+
+Then set the worker URL (for example `https://asknelson-proxy.<your-subdomain>.workers.dev/v1`) as the API base URL in Settings, or put it in `PROXY_BASE` in `index.html`.
 
 ## License
 
