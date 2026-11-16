@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grok Chatbox</title>
+  <meta name="description" content="A Slack-style chat UI for xAI Grok." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316110c'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' font-family='system-ui' fill='%23f4b942'%3EG%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <style>
+    :root {
+      --sidebar: #16110c;
+      --sidebar-hover: #221a12;
+      --sidebar-active: #2c2116;
+      --rail-text: #d7c4a3;
+      --rail-muted: #8b7355;
+      --accent: #f4b942;
+      --accent-dim: #c48a1a;
+      --bg: #1c1a17;
+      --panel: #23201b;
+      --line: #3a332a;
+      --text: #f3ece3;
+      --muted: #9a8d7c;
+      --you: #f4b942;
+      --grok: #7ec8c4;
+      --danger: #e26d5a;
+      --ok: #7fbf7f;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      --font: "Segoe UI", "IBM Plex Sans", "Noto Sans", sans-serif;
+      --mono: "IBM Plex Mono", "ui-monospace", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      min-height: 100%;
+    }
+    button, textarea, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .app { display: flex; width: 100%; min-height: 100%; }
+
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--sidebar);
+      color: var(--rail-text);
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #000;
+    }
+    .workspace {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid #2a2218;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .workspace h1 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+      font-weight: 700;
+      color: #fff8ee;
+    }
+    .workspace p { margin: 2px 0 0; font-size: 11px; color: var(--rail-muted); }
+    .icon-btn {
+      background: transparent;
+      border: 0;
+      color: var(--rail-text);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+    }
+    .icon-btn:hover { background: var(--sidebar-hover); color: #fff; }
+    .new-chat {
+      margin: 12px 12px 8px;
+      background: var(--accent);
+      color: #1a1308;
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 650;
+    }
+    .new-chat:hover { filter: brightness(1.05); }
+    .nav-label {
+      margin: 8px 16px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--rail-muted);
+    }
+    .channels { flex: 1; overflow: auto; padding: 0 8px 12px; }
+    .channel {
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      color: var(--rail-text);
+      border-radius: 8px;
+      padding: 7px 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .channel .hash { color: var(--rail-muted); font-weight: 700; }
+    .channel .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .channel:hover { background: var(--sidebar-hover); }
+    .channel.active { background: var(--sidebar-active); color: #fff; font-weight: 650; }
+    .channel-actions { display: none; gap: 2px; }
+    .channel:hover .channel-actions, .channel.active .channel-actions { display: flex; }
+    .tiny {
+      background: transparent;
+      border: 0;
+      color: var(--rail-muted);
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .tiny:hover { color: #fff; background: #0003; }
+
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+    .topbar {
+      height: 56px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: var(--panel);
+    }
+    .topbar h2 { margin: 0; font-size: 16px; font-weight: 700; }
+    .topbar h2 span { color: var(--muted); font-weight: 500; margin-left: 8px; font-size: 13px; }
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+    .ghost {
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: var(--text);
+    }
+    .ghost:hover { border-color: var(--accent-dim); }
+
+    .messages {
+      flex: 1;
+      overflow: auto;
+      padding: 8px 0 24px;
+    }
+    .empty {
+      max-width: 520px;
+      margin: 12vh auto 0;
+      padding: 0 24px;
+      color: var(--muted);
+    }
+    .empty h3 { color: var(--text); margin: 0 0 8px; font-size: 22px; }
+    .empty a { color: var(--accent); }
+    .msg {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 10px;
+      padding: 8px 24px;
+    }
+    .msg:hover { background: #ffffff06; }
+    .msg.grouped { padding-top: 2px; padding-bottom: 2px; }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: #1a1308;
+    }
+    .avatar.you { background: var(--you); }
+    .avatar.grok { background: var(--grok); }
+    .avatar.error { background: var(--danger); color: #fff; }
+    .meta { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+    .meta .who { font-weight: 700; font-size: 14px; }
+    .meta .when { font-size: 12px; color: var(--muted); }
+    .bubble { font-size: 15px; line-height: 1.55; word-wrap: break-word; }
+    .bubble p { margin: 0 0 0.7em; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble pre {
+      background: #100e0c;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+    .bubble code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      background: #0004;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+    .bubble pre code { background: none; padding: 0; }
+    .bubble a { color: var(--accent); }
+    .bubble.pending { color: var(--muted); font-style: italic; }
+    .err { color: var(--danger); }
+
+    .composer-wrap {
+      padding: 0 18px 18px;
+    }
+    .composer {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 8px 8px 8px 14px;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      box-shadow: var(--shadow);
+    }
+    .composer:focus-within { border-color: var(--accent-dim); }
+    textarea {
+      flex: 1;
+      resize: none;
+      max-height: 160px;
+      min-height: 44px;
+      background: transparent;
+      border: 0;
+      outline: none;
+      padding: 10px 0;
+      line-height: 1.45;
+    }
+    .send {
+      background: var(--accent);
+      color: #1a1308;
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .send:disabled { opacity: 0.4; cursor: default; }
+    .hint { margin: 8px 4px 0; font-size: 11px; color: var(--muted); }
+
+    .modal-bg {
+      position: fixed;
+      inset: 0;
+      background: #0008;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      z-index: 20;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      width: min(480px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .modal h3 { margin: 0 0 14px; }
+    label { display: block; font-size: 12px; font-weight: 650; color: var(--muted); margin: 12px 0 6px; }
+    input[type="password"], input[type="text"], select, .modal textarea {
+      width: 100%;
+      background: #15130f;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 11px;
+      min-height: unset;
+    }
+    .modal textarea { min-height: 80px; resize: vertical; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row input { flex: 1; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .save { background: var(--accent); color: #1a1308; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; }
+    .status { font-size: 12px; margin-top: 8px; color: var(--muted); }
+    .status.ok { color: var(--ok); }
+    .status.bad { color: var(--danger); }
+    .menu-btn { display: none; }
+
+    @media (max-width: 720px) {
+      .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; transform: translateX(-100%); transition: transform .2s ease; }
+      .sidebar.open { transform: none; }
+      .menu-btn { display: grid; }
+      .msg { padding-left: 14px; padding-right: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="workspace">
+        <div>
+          <h1>Grok Chatbox</h1>
+          <p>xAI · GitHub Pages</p>
+        </div>
+        <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+      </div>
+      <button class="new-chat" id="newChat">+ New channel</button>
+      <div class="nav-label">Channels</div>
+      <div class="channels" id="channels"></div>
+    </aside>
+    <section class="main">
+      <header class="topbar">
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open channels">☰</button>
+          <h2 id="title"># general <span id="subtitle">Grok</span></h2>
+        </div>
+        <div class="top-actions">
+          <select class="ghost" id="modelSelect" aria-label="Model"></select>
+          <button class="ghost" id="settingsBtn2">Settings</button>
+        </div>
+      </header>
+      <div class="messages" id="messages"></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <textarea id="input" rows="1" placeholder="Message Grok…  Enter to send, Shift+Enter for a new line"></textarea>
+          <button class="send" id="send">Send</button>
+        </div>
+        <div class="hint">API key stays in this browser only. Get one at console.x.ai — never commit it to the repo.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-bg" id="modal">
+    <div class="modal" role="dialog" aria-labelledby="settingsTitle">
+      <h3 id="settingsTitle">Settings</h3>
+      <label for="apiKey">xAI API key</label>
+      <div class="row">
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="xai-…" />
+        <button class="ghost" id="toggleKey" type="button">Show</button>
+      </div>
+      <label for="baseUrl">API base URL</label>
+      <input id="baseUrl" type="text" spellcheck="false" placeholder="https://api.x.ai/v1" />
+      <label for="sysPrompt">System prompt</label>
+      <textarea id="sysPrompt"></textarea>
+      <p class="status" id="settingsStatus">Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved only in localStorage on this device.</p>
+      <div class="modal-actions">
+        <button class="ghost" id="cancelSettings">Close</button>
+        <button class="save" id="saveSettings">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.7/dist/purify.min.js"></script>
+  <script>
+    const MODELS = [
+      { id: "grok-4.7", label: "grok-4.7 (recommended)" },
+      { id: "grok-4.6", label: "grok-4.6" },
+      { id: "grok-4.5", label: "grok-4.5" },
+      { id: "grok-4.3", label: "grok-4.3" }
+    ];
+    const K = {
+      key: "grok-chatbox:apiKey",
+      settings: "grok-chatbox:settings",
+      convos: "grok-chatbox:conversations",
+      active: "grok-chatbox:activeId"
+    };
+    const DEFAULT_PROMPT = "You are Grok, a helpful, clear, and slightly witty assistant from xAI.";
+    const DEFAULT_BASE = "https://api.x.ai/v1";
+
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      conversations: [],
+      activeId: null,
+      sending: false,
+      abort: null
+    };
+
+    function loadSettings() {
+      let s = {};
+      try { s = JSON.parse(localStorage.getItem(K.settings) || "{}"); } catch {}
+      return {
+        model: s.model || "grok-4.7",
+        baseUrl: s.baseUrl || DEFAULT_BASE,
+        systemPrompt: s.systemPrompt || DEFAULT_PROMPT
+      };
+    }
+    function saveSettingsObj(s) {
+      localStorage.setItem(K.settings, JSON.stringify(s));
+    }
+    function getKey() { return localStorage.getItem(K.key) || ""; }
+    function setKey(v) {
+      if (v) localStorage.setItem(K.key, v);
+      else localStorage.removeItem(K.key);
+    }
+    function loadConvos() {
+      try { state.conversations = JSON.parse(localStorage.getItem(K.convos) || "[]"); }
+      catch { state.conversations = []; }
+      if (!state.conversations.length) {
+        const first = makeConvo("general");
+        state.conversations = [first];
+        state.activeId = first.id;
+        persistConvos();
+      } else {
+        state.activeId = localStorage.getItem(K.active) || state.conversations[0].id;
+        if (!state.conversations.some((c) => c.id === state.activeId)) {
+          state.activeId = state.conversations[0].id;
+        }
+      }
+    }
+    function persistConvos() {
+      localStorage.setItem(K.convos, JSON.stringify(state.conversations));
+      if (state.activeId) localStorage.setItem(K.active, state.activeId);
+    }
+    function makeConvo(name) {
+      return {
+        id: crypto.randomUUID(),
+        name: name || "new-chat",
+        messages: [],
+        createdAt: Date.now()
+      };
+    }
+    function active() {
+      return state.conversations.find((c) => c.id === state.activeId);
+    }
+
+    function renderChannels() {
+      const box = $("channels");
+      box.innerHTML = "";
+      for (const c of state.conversations) {
+        const b = document.createElement("button");
+        b.className = "channel" + (c.id === state.activeId ? " active" : "");
+        b.innerHTML = `<span class="hash">#</span><span class="name"></span><span class="channel-actions"></span>`;
+        b.querySelector(".name").textContent = c.name;
+        const actions = b.querySelector(".channel-actions");
+        const ren = document.createElement("button");
+        ren.className = "tiny";
+        ren.title = "Rename";
+        ren.textContent = "✎";
+        ren.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const next = prompt("Channel name", c.name);
+          if (next && next.trim()) {
+            c.name = next.trim().replace(/\s+/g, "-").replace(/^#/, "");
+            persistConvos();
+            renderChannels();
+            renderMain();
+          }
+        });
+        const del = document.createElement("button");
+        del.className = "tiny";
+        del.title = "Delete";
+        del.textContent = "✕";
+        del.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (state.conversations.length === 1) {
+            c.messages = [];
+            c.name = "general";
+          } else {
+            state.conversations = state.conversations.filter((x) => x.id !== c.id);
+            if (state.activeId === c.id) state.activeId = state.conversations[0].id;
+          }
+          persistConvos();
+          renderChannels();
+          renderMain();
+        });
+        actions.append(ren, del);
+        b.addEventListener("click", () => {
+          state.activeId = c.id;
+          persistConvos();
+          $("sidebar").classList.remove("open");
+          renderChannels();
+          renderMain();
+        });
+        box.appendChild(b);
+      }
+    }
+
+    function md(text) {
+      const raw = marked.parse(text || "", { breaks: true, gfm: true });
+      return DOMPurify.sanitize(raw);
+    }
+    function fmtTime(ts) {
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    function shouldGroup(prev, cur) {
+      return prev && prev.role === cur.role && (cur.ts - prev.ts) < 5 * 60 * 1000;
+    }
+
+    function renderMain() {
+      const c = active();
+      $("title").innerHTML = `# ${escapeHtml(c.name)} <span id="subtitle">${escapeHtml(loadSettings().model)}</span>`;
+      const box = $("messages");
+      box.innerHTML = "";
+      if (!getKey() && !c.messages.length) {
+        box.innerHTML = `<div class="empty">
+          <h3>Welcome to Grok Chatbox</h3>
+          <p>This is a Slack-style chat page for xAI Grok. Open Settings, paste an API key from <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>, then send a message.</p>
+          <p>Your key never leaves this browser except to call the official xAI API. It is not stored in the GitHub repo.</p>
+        </div>`;
+        return;
+      }
+      if (!c.messages.length) {
+        box.innerHTML = `<div class="empty"><h3>#${escapeHtml(c.name)}</h3><p>This channel is empty. Say hello to Grok.</p></div>`;
+        return;
+      }
+      c.messages.forEach((m, i) => {
+        const prev = c.messages[i - 1];
+        const grouped = shouldGroup(prev, m);
+        const el = document.createElement("article");
+        el.className = "msg" + (grouped ? " grouped" : "");
+        const who = m.role === "user" ? "You" : m.role === "assistant" ? "Grok" : "Error";
+        const avClass = m.role === "user" ? "you" : m.role === "assistant" ? "grok" : "error";
+        const initial = who[0];
+        const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
+        el.innerHTML = `
+          <div>${grouped ? "" : `<div class="avatar ${avClass}">${initial}</div>`}</div>
+          <div>
+            ${grouped ? "" : `<div class="meta"><span class="who">${who}</span><span class="when">${fmtTime(m.ts)}</span></div>`}
+            <div class="${bodyClass}">${m.pending && !m.content ? "Grok is thinking…" : md(m.content)}</div>
+          </div>`;
+        box.appendChild(el);
+      });
+      box.scrollTop = box.scrollHeight;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+
+    function fillModels() {
+      const sel = $("modelSelect");
+      const cur = loadSettings().model;
+      sel.innerHTML = MODELS.map((m) =>
+        `<option value="${m.id}" ${m.id === cur ? "selected" : ""}>${m.label}</option>`
+      ).join("");
+    }
+
+    function openSettings() {
+      const s = loadSettings();
+      $("apiKey").value = getKey();
+      $("baseUrl").value = s.baseUrl;
+      $("sysPrompt").value = s.systemPrompt;
+      $("settingsStatus").className = "status";
+      $("modal").classList.add("open");
+      $("apiKey").focus();
+    }
+    function closeSettings() { $("modal").classList.remove("open"); }
+
+    async function sendMessage() {
+      if (state.sending) return;
+      const text = $("input").value.trim();
+      if (!text) return;
+      if (!getKey()) {
+        openSettings();
+        $("settingsStatus").textContent = "Add an xAI API key before chatting.";
+        $("settingsStatus").className = "status bad";
+        return;
+      }
+      const c = active();
+      c.messages.push({ role: "user", content: text, ts: Date.now() });
+      const pending = { role: "assistant", content: "", ts: Date.now(), pending: true };
+      c.messages.push(pending);
+      $("input").value = "";
+      autosize();
+      persistConvos();
+      renderMain();
+      state.sending = true;
+      $("send").disabled = true;
+      const s = loadSettings();
+      const base = (s.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
+      const messages = [
+        { role: "system", content: s.systemPrompt || DEFAULT_PROMPT },
+        ...c.messages
+          .filter((m) => m.role === "user" || (m.role === "assistant" && m !== pending && m.content))
+          .map((m) => ({ role: m.role, content: m.content }))
+      ];
+      const ctrl = new AbortController();
+      state.abort = ctrl;
+      try {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + getKey()
+          },
+          body: JSON.stringify({
+            model: s.model || "grok-4.7",
+            messages,
+            stream: true
+          }),
+          signal: ctrl.signal
+        });
+        if (!res.ok) {
+          let detail = await res.text();
+          try { detail = JSON.parse(detail).error || detail; } catch {}
+          if (typeof detail === "object") detail = detail.message || JSON.stringify(detail);
+          throw new Error(res.status + " " + (detail || res.statusText));
+        }
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split("\n");
+          buf = parts.pop();
+          for (const line of parts) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const json = JSON.parse(data);
+              const piece = json.choices?.[0]?.delta?.content || json.choices?.[0]?.message?.content || "";
+              if (piece) {
+                pending.content += piece;
+                pending.pending = false;
+                persistConvos();
+                renderMain();
+              }
+            } catch {}
+          }
+        }
+        if (!pending.content) pending.content = "(No response)";
+        pending.pending = false;
+      } catch (err) {
+        if (err.name === "AbortError") {
+          if (!pending.content) pending.content = "(Stopped)";
+        } else {
+          c.messages.pop();
+          c.messages.push({
+            role: "error",
+            content: "Request failed: " + (err.message || err),
+            ts: Date.now()
+          });
+        }
+      } finally {
+        pending.pending = false;
+        state.sending = false;
+        state.abort = null;
+        $("send").disabled = false;
+        persistConvos();
+        renderMain();
+        $("input").focus();
+      }
+    }
+
+    function autosize() {
+      const el = $("input");
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    }
+
+    function init() {
+      loadConvos();
+      fillModels();
+      renderChannels();
+      renderMain();
+      $("newChat").addEventListener("click", () => {
+        const c = makeConvo("chat-" + (state.conversations.length + 1));
+        state.conversations.unshift(c);
+        state.activeId = c.id;
+        persistConvos();
+        renderChannels();
+        renderMain();
+        $("input").focus();
+      });
+      $("settingsBtn").addEventListener("click", openSettings);
+      $("settingsBtn2").addEventListener("click", openSettings);
+      $("cancelSettings").addEventListener("click", closeSettings);
+      $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) closeSettings(); });
+      $("toggleKey").addEventListener("click", () => {
+        const i = $("apiKey");
+        i.type = i.type === "password" ? "text" : "password";
+        $("toggleKey").textContent = i.type === "password" ? "Show" : "Hide";
+      });
+      $("saveSettings").addEventListener("click", () => {
+        const key = $("apiKey").value.trim();
+        setKey(key);
+        const s = loadSettings();
+        s.baseUrl = $("baseUrl").value.trim() || DEFAULT_BASE;
+        s.systemPrompt = $("sysPrompt").value.trim() || DEFAULT_PROMPT;
+        saveSettingsObj(s);
+        $("settingsStatus").textContent = key ? "Saved on this device." : "Key cleared.";
+        $("settingsStatus").className = "status ok";
+        fillModels();
+        renderMain();
+      });
+      $("modelSelect").addEventListener("change", () => {
+        const s = loadSettings();
+        s.model = $("modelSelect").value;
+        saveSettingsObj(s);
+        renderMain();
+      });
+      $("send").addEventListener("click", sendMessage);
+      $("input").addEventListener("input", autosize);
+      $("input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+      $("menuBtn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
+    }
+    init();
+  </script>
+</body>
+</html>
