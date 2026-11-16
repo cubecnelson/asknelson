@@ -284,6 +284,52 @@
     .status.bad { color: var(--danger); }
     .menu-btn { display: none; }
 
+
+    .composer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .attach-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 0; }
+    .attach-list:empty { display: none; }
+    .file-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #15130f;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      max-width: 240px;
+      color: var(--text);
+    }
+    .file-chip .fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-chip .sz { color: var(--muted); flex-shrink: 0; }
+    .file-chip .x {
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      padding: 0 2px;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .file-chip .x:hover { color: var(--danger); }
+    .attach-btn {
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 4px;
+      flex-shrink: 0;
+      font-size: 18px;
+    }
+    .attach-btn:hover { color: var(--accent); background: #ffffff0a; }
+    .composer.dragover { border-color: var(--accent); background: #f4b94214; }
+    .msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    #composerStatus:empty { display: none; }
+    #composerStatus { color: var(--danger); }
+
     @media (max-width: 720px) {
       .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; transform: translateX(-100%); transition: transform .2s ease; }
       .sidebar.open { transform: none; }
@@ -319,11 +365,17 @@
       </header>
       <div class="messages" id="messages"></div>
       <div class="composer-wrap">
-        <div class="composer">
-          <textarea id="input" rows="1" placeholder="Message AskNelson…  Enter to send, Shift+Enter for a new line"></textarea>
+        <div class="composer" id="composer">
+          <div class="composer-main">
+            <div class="attach-list" id="attachList"></div>
+            <textarea id="input" rows="1" placeholder="Message AskNelson…  Enter to send, Shift+Enter for a new line"></textarea>
+          </div>
+          <input id="fileInput" type="file" multiple hidden accept=".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.rtf,.log,.yml,.yaml,.toml,.ini,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.sql,.css,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
+          <button class="attach-btn" id="attachBtn" type="button" title="Upload document" aria-label="Upload document">📎</button>
           <button class="send" id="send">Send</button>
         </div>
-        <div class="hint">Your API key and chat rooms stay in this browser. Get a key at console.x.ai — never commit it to the repo.</div>
+        <div class="hint">Your API key and chat rooms stay in this browser. Attach a PDF or other document with the paperclip, or drag it here. Get a key at console.x.ai — never commit it to the repo.</div>
+        <div class="hint" id="composerStatus"></div>
       </div>
     </section>
   </div>
@@ -381,13 +433,78 @@
     const DB_STORE = "kv";
 
     const $ = (id) => document.getElementById(id);
+    const MAX_FILE_BYTES = 50 * 1024 * 1024;
+    const FILE_EXTS = /\.(pdf|txt|text|md|markdown|csv|tsv|json|xml|html|htm|rtf|log|yml|yaml|toml|ini|cfg|conf|py|js|mjs|cjs|ts|tsx|jsx|java|c|cc|cpp|h|hpp|cs|go|rs|rb|php|sh|bash|zsh|sql|css|scss|less|docx?|xlsx?|pptx?)$/i;
+
     const state = {
       conversations: [],
       activeId: null,
       sending: false,
       abort: null,
-      apiKey: ""
+      apiKey: "",
+      pendingFiles: []
     };
+
+    function formatBytes(n) {
+      if (!n && n !== 0) return "";
+      if (n < 1024) return n + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      return (n / (1024 * 1024)).toFixed(1) + " MB";
+    }
+    function isAllowedFile(file) {
+      return FILE_EXTS.test((file && file.name) || "");
+    }
+    function showComposerStatus(msg) {
+      const el = $("composerStatus");
+      if (el) el.textContent = msg || "";
+    }
+    function renderAttachList() {
+      const box = $("attachList");
+      if (!box) return;
+      box.innerHTML = "";
+      for (const item of state.pendingFiles) {
+        const chip = document.createElement("span");
+        chip.className = "file-chip";
+        const fn = document.createElement("span");
+        fn.className = "fn";
+        fn.textContent = item.file.name;
+        fn.title = item.file.name;
+        const sz = document.createElement("span");
+        sz.className = "sz";
+        sz.textContent = formatBytes(item.file.size);
+        const x = document.createElement("button");
+        x.className = "x";
+        x.type = "button";
+        x.title = "Remove";
+        x.setAttribute("aria-label", "Remove " + item.file.name);
+        x.textContent = "✕";
+        x.addEventListener("click", () => {
+          state.pendingFiles = state.pendingFiles.filter((f) => f.id !== item.id);
+          renderAttachList();
+        });
+        chip.append(fn, sz, x);
+        box.appendChild(chip);
+      }
+    }
+    function addPendingFiles(fileList) {
+      const errors = [];
+      for (const file of fileList || []) {
+        if (!isAllowedFile(file)) {
+          errors.push(file.name + " is not a supported document type.");
+          continue;
+        }
+        if (file.size > MAX_FILE_BYTES) {
+          errors.push(file.name + " is larger than 50 MB.");
+          continue;
+        }
+        if (state.pendingFiles.some((f) => f.file.name === file.name && f.file.size === file.size && f.file.lastModified === file.lastModified)) {
+          continue;
+        }
+        state.pendingFiles.push({ id: crypto.randomUUID(), file });
+      }
+      renderAttachList();
+      showComposerStatus(errors.join(" "));
+    }
 
     function migrateStorage() {
       for (const name of Object.keys(K)) {
@@ -638,11 +755,20 @@
         const avClass = m.role === "user" ? "you" : m.role === "assistant" ? "grok" : "error";
         const initial = who[0];
         const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
+        const pendingLabel = m.upload
+          ? "Uploading document…"
+          : (m.searching ? "Searching the document…" : "AskNelson is thinking…");
+        const filesHtml = (m.attachments && m.attachments.length)
+          ? `<div class="msg-files">${m.attachments.map((f) =>
+              `<span class="file-chip" title="${escapeHtml(f.filename || "")}"><span class="fn">${escapeHtml(f.filename || "document")}</span></span>`
+            ).join("")}</div>`
+          : "";
         el.innerHTML = `
           <div>${grouped ? "" : `<div class="avatar ${avClass}">${initial}</div>`}</div>
           <div>
             ${grouped ? "" : `<div class="meta"><span class="who">${who}</span><span class="when">${fmtTime(m.ts)}</span></div>`}
-            <div class="${bodyClass}">${m.pending && !m.content ? "AskNelson is thinking…" : md(m.content)}</div>
+            <div class="${bodyClass}">${m.pending && !m.content ? pendingLabel : md(m.content)}</div>
+            ${filesHtml}
           </div>`;
         box.appendChild(el);
       });
@@ -690,18 +816,19 @@
       const msg = String(err && (err.message || err) || "");
       return err && (err.name === "TypeError" || /Failed to fetch|NetworkError|CORS|Load failed/i.test(msg));
     }
-    async function postChat(payload, s, signal) {
+    async function apiPostJson(path, payload, s, signal, accept) {
       const body = JSON.stringify(payload);
       const headers = {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + getKey()
       };
+      if (accept) headers.Accept = accept;
       const bases = apiBases(s);
+      const rel = path.startsWith("/") ? path : "/" + path;
       let lastErr = null;
       for (let i = 0; i < bases.length; i++) {
-        const base = bases[i];
         try {
-          const res = await fetch(`${base}/chat/completions`, {
+          const res = await fetch(bases[i] + rel, {
             method: "POST",
             headers,
             body,
@@ -716,12 +843,78 @@
       }
       throw lastErr || new Error("Request failed");
     }
+    async function postChat(payload, s, signal) {
+      return apiPostJson("/chat/completions", payload, s, signal);
+    }
+    async function uploadFile(file, s, signal) {
+      const bases = apiBases(s);
+      let lastErr = null;
+      for (let i = 0; i < bases.length; i++) {
+        const form = new FormData();
+        form.append("expires_after", "604800");
+        form.append("purpose", "assistants");
+        form.append("file", file, file.name);
+        try {
+          const res = await fetch(bases[i] + "/files", {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + getKey(),
+              Accept: "application/json"
+            },
+            body: form,
+            signal
+          });
+          if (!res.ok) {
+            let detail = await res.text();
+            try { detail = JSON.parse(detail).error || detail; } catch {}
+            if (typeof detail === "object") detail = detail.message || JSON.stringify(detail);
+            throw new Error((file.name + ": " + res.status + " " + (detail || res.statusText)).trim());
+          }
+          const meta = await res.json();
+          if (!meta || !meta.id) throw new Error(file.name + ": upload did not return a file id.");
+          return meta;
+        } catch (err) {
+          if (err && err.name === "AbortError") throw err;
+          lastErr = err;
+          if (!isCorsFailure(err) || i === bases.length - 1) throw err;
+        }
+      }
+      throw lastErr || new Error("Upload failed");
+    }
+    function textFromCompleted(json) {
+      const output = (json && json.response && json.response.output) || (json && json.output) || [];
+      let t = "";
+      for (const item of output) {
+        for (const part of item.content || []) {
+          if ((part.type === "output_text" || part.type === "text") && part.text) t += part.text;
+        }
+      }
+      return t;
+    }
+    function toResponsesInput(messages, pending) {
+      const input = [];
+      for (const m of messages) {
+        if (m === pending) continue;
+        if (m.role === "user") {
+          const parts = [];
+          if (m.content) parts.push({ type: "input_text", text: m.content });
+          for (const f of m.attachments || []) {
+            if (f.id) parts.push({ type: "input_file", file_id: f.id });
+          }
+          if (!parts.length) continue;
+          input.push({ role: "user", content: parts });
+        } else if (m.role === "assistant" && m.content) {
+          input.push({ role: "assistant", content: m.content });
+        }
+      }
+      return input;
+    }
 
     async function sendMessage() {
-
       if (state.sending) return;
       const text = $("input").value.trim();
-      if (!text) return;
+      const toUpload = state.pendingFiles.slice();
+      if (!text && !toUpload.length) return;
       if (!getKey()) {
         openSettings();
         $("settingsStatus").textContent = "Add an xAI API key before chatting.";
@@ -729,30 +922,65 @@
         return;
       }
       const c = active();
-      c.messages.push({ role: "user", content: text, ts: Date.now() });
-      const pending = { role: "assistant", content: "", ts: Date.now(), pending: true };
+      const userMsg = { role: "user", content: text, ts: Date.now(), attachments: [] };
+      c.messages.push(userMsg);
+      const pending = { role: "assistant", content: "", ts: Date.now(), pending: true, upload: !!toUpload.length };
       c.messages.push(pending);
       $("input").value = "";
+      state.pendingFiles = [];
       autosize();
+      renderAttachList();
+      showComposerStatus("");
       persistConvos();
       renderMain();
       state.sending = true;
       $("send").disabled = true;
       const s = loadSettings();
-      const messages = [
-        { role: "system", content: s.systemPrompt || DEFAULT_PROMPT },
-        ...c.messages
-          .filter((m) => m.role === "user" || (m.role === "assistant" && m !== pending && m.content))
-          .map((m) => ({ role: m.role, content: m.content }))
-      ];
       const ctrl = new AbortController();
       state.abort = ctrl;
       try {
-        const res = await postChat({
-          model: s.model || "grok-4.7",
-          messages,
-          stream: true
-        }, s, ctrl.signal);
+        if (toUpload.length) {
+          for (const item of toUpload) {
+            const meta = await uploadFile(item.file, s, ctrl.signal);
+            userMsg.attachments.push({
+              id: meta.id,
+              filename: meta.filename || item.file.name,
+              bytes: meta.bytes || item.file.size
+            });
+            persistConvos();
+            renderMain();
+          }
+          pending.upload = false;
+          if (!userMsg.content) {
+            userMsg.content = userMsg.attachments.length === 1
+              ? "Please review the attached document."
+              : "Please review the attached documents.";
+          }
+          persistConvos();
+          renderMain();
+        }
+        const hasFiles = c.messages.some((m) => m !== pending && m.attachments && m.attachments.length);
+        let res;
+        if (hasFiles) {
+          res = await apiPostJson("/responses", {
+            model: s.model || "grok-4.7",
+            instructions: s.systemPrompt || DEFAULT_PROMPT,
+            input: toResponsesInput(c.messages, pending),
+            stream: true
+          }, s, ctrl.signal, "text/event-stream");
+        } else {
+          const messages = [
+            { role: "system", content: s.systemPrompt || DEFAULT_PROMPT },
+            ...c.messages
+              .filter((m) => m.role === "user" || (m.role === "assistant" && m !== pending && m.content))
+              .map((m) => ({ role: m.role, content: m.content }))
+          ];
+          res = await postChat({
+            model: s.model || "grok-4.7",
+            messages,
+            stream: true
+          }, s, ctrl.signal);
+        }
         if (!res.ok) {
           let detail = await res.text();
           try { detail = JSON.parse(detail).error || detail; } catch {}
@@ -775,14 +1003,41 @@
             if (data === "[DONE]") continue;
             try {
               const json = JSON.parse(data);
-              const piece = json.choices?.[0]?.delta?.content || json.choices?.[0]?.message?.content || "";
-              if (piece) {
-                pending.content += piece;
-                pending.pending = false;
-                persistConvos();
-                renderMain();
+              if (hasFiles) {
+                const type = json.type || "";
+                if (type === "response.output_text.delta" && json.delta) {
+                  pending.content += json.delta;
+                  pending.searching = false;
+                  pending.pending = false;
+                  persistConvos();
+                  renderMain();
+                } else if (type === "response.file_search_call.searching" || type === "response.file_search_call.in_progress") {
+                  pending.searching = true;
+                  renderMain();
+                } else if (type === "response.failed" || type === "error") {
+                  const msg = json.message || (json.error && json.error.message) || json.error || "Response failed";
+                  throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+                } else if ((type === "response.completed" || type === "response.output_text.done") && !pending.content) {
+                  const textOut = json.text || textFromCompleted(json);
+                  if (textOut) {
+                    pending.content = textOut;
+                    pending.pending = false;
+                    persistConvos();
+                    renderMain();
+                  }
+                }
+              } else {
+                const piece = json.choices?.[0]?.delta?.content || json.choices?.[0]?.message?.content || "";
+                if (piece) {
+                  pending.content += piece;
+                  pending.pending = false;
+                  persistConvos();
+                  renderMain();
+                }
               }
-            } catch {}
+            } catch (parseErr) {
+              if (parseErr && parseErr.message && !/JSON/i.test(parseErr.message) && parseErr.name !== "SyntaxError") throw parseErr;
+            }
           }
         }
         if (!pending.content) pending.content = "(No response)";
@@ -792,6 +1047,16 @@
           if (!pending.content) pending.content = "(Stopped)";
         } else {
           c.messages.pop();
+          const uploaded = (userMsg.attachments || []).length;
+          if (toUpload.length && uploaded < toUpload.length) {
+            state.pendingFiles = toUpload.slice(uploaded).concat(state.pendingFiles);
+            renderAttachList();
+            if (!uploaded && !text) {
+              c.messages.pop();
+              $("input").value = text;
+              autosize();
+            }
+          }
           const cors = isCorsFailure(err);
           c.messages.push({
             role: "error",
@@ -873,6 +1138,28 @@
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           sendMessage();
+        }
+      });
+      $("attachBtn").addEventListener("click", () => $("fileInput").click());
+      $("fileInput").addEventListener("change", () => {
+        addPendingFiles($("fileInput").files);
+        $("fileInput").value = "";
+      });
+      const composer = $("composer");
+      composer.addEventListener("dragover", (e) => {
+        if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) {
+          e.preventDefault();
+          composer.classList.add("dragover");
+        }
+      });
+      composer.addEventListener("dragleave", (e) => {
+        if (!composer.contains(e.relatedTarget)) composer.classList.remove("dragover");
+      });
+      composer.addEventListener("drop", (e) => {
+        e.preventDefault();
+        composer.classList.remove("dragover");
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+          addPendingFiles(e.dataTransfer.files);
         }
       });
       $("menuBtn").addEventListener("click", () => $("sidebar").classList.toggle("open"));

@@ -1,5 +1,5 @@
 /**
- * Same-origin-friendly CORS proxy for the xAI chat completions API.
+ * CORS proxy for the xAI chat, responses, and files APIs.
  * The browser keeps the API key and sends it as Authorization; this worker
  * only forwards the request so GitHub Pages is not blocked by a failed preflight.
  */
@@ -11,14 +11,16 @@ const ALLOWED_ORIGINS = new Set([
   "http://127.0.0.1:5500"
 ]);
 
-const ALLOWED_PATH = /^\/(v1\/)?chat\/completions\/?$/;
+const ALLOWED_PATH = /^\/(v1\/)?(chat\/completions|responses|files)\/?$/;
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
+  let hostname = "";
+  try { hostname = new URL(origin || "http://invalid").hostname; } catch {}
   const allow =
     ALLOWED_ORIGINS.has(origin) ||
-    /\.pages\.dev$/.test(new URL(origin || "http://invalid").hostname) ||
-    /\.workers\.dev$/.test(new URL(origin || "http://invalid").hostname)
+    /\.pages\.dev$/.test(hostname) ||
+    /\.workers\.dev$/.test(hostname)
       ? origin
       : "https://cubecnelson.github.io";
   return {
@@ -60,15 +62,17 @@ export default {
 
     const path = url.pathname.startsWith("/v1/") ? url.pathname : `/v1${url.pathname}`;
     const target = `https://api.x.ai${path}${url.search}`;
+    const headers = { Authorization: auth };
+    const contentType = request.headers.get("Content-Type");
+    if (contentType) headers["Content-Type"] = contentType;
+    const accept = request.headers.get("Accept");
+    if (accept) headers["Accept"] = accept;
+
     let upstream;
     try {
       upstream = await fetch(target, {
         method: "POST",
-        headers: {
-          Authorization: auth,
-          "Content-Type": request.headers.get("Content-Type") || "application/json",
-          Accept: request.headers.get("Accept") || "text/event-stream"
-        },
+        headers,
         body: request.body
       });
     } catch (err) {
@@ -78,9 +82,9 @@ export default {
       });
     }
 
-    const headers = new Headers(upstream.headers);
-    for (const [key, value] of Object.entries(cors)) headers.set(key, value);
-    headers.set("Cache-Control", "no-cache");
-    return new Response(upstream.body, { status: upstream.status, headers });
+    const outHeaders = new Headers(upstream.headers);
+    for (const [key, value] of Object.entries(cors)) outHeaders.set(key, value);
+    outHeaders.set("Cache-Control", "no-cache");
+    return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
   }
 };
