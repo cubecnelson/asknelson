@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AskNelson</title>
-  <meta name="description" content="AskNelson — a Slack-style chat UI powered by xAI Grok." />
+  <meta name="description" content="AskNelson — a personal productivity workspace powered by xAI Grok." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316110c'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' font-family='system-ui' fill='%23f4b942'%3EA%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <style>
@@ -78,8 +78,9 @@
       place-items: center;
     }
     .icon-btn:hover { background: var(--sidebar-hover); color: #fff; }
+    .area-nav { padding: 10px 8px 6px; display: flex; flex-direction: column; gap: 2px; }
     .new-chat {
-      margin: 12px 12px 8px;
+      margin: 4px 12px 8px;
       background: var(--accent);
       color: #1a1308;
       border: 0;
@@ -97,7 +98,7 @@
       color: var(--rail-muted);
     }
     .channels { flex: 1; overflow: auto; padding: 0 8px 12px; }
-    .channel {
+    .channel, .nav-item {
       width: 100%;
       text-align: left;
       background: transparent;
@@ -109,10 +110,21 @@
       align-items: center;
       gap: 8px;
     }
-    .channel .hash { color: var(--rail-muted); font-weight: 700; }
-    .channel .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .channel:hover { background: var(--sidebar-hover); }
-    .channel.active { background: var(--sidebar-active); color: #fff; font-weight: 650; }
+    .channel .hash, .nav-item .nav-ico { color: var(--rail-muted); font-weight: 700; width: 16px; text-align: center; flex-shrink: 0; }
+    .channel .name, .nav-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .channel:hover, .nav-item:hover { background: var(--sidebar-hover); }
+    .channel.active, .nav-item.active { background: var(--sidebar-active); color: #fff; font-weight: 650; }
+    .nav-badge {
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 999px;
+      min-width: 18px;
+      padding: 1px 6px;
+      text-align: center;
+    }
+    .nav-badge:empty { display: none; }
     .channel-actions { display: none; gap: 2px; }
     .channel:hover .channel-actions, .channel.active .channel-actions { display: flex; }
     .tiny {
@@ -134,6 +146,7 @@
       justify-content: space-between;
       padding: 0 18px;
       background: var(--panel);
+      flex-shrink: 0;
     }
     .topbar h2 { margin: 0; font-size: 16px; font-weight: 700; }
     .topbar h2 span { color: var(--muted); font-weight: 500; margin-left: 8px; font-size: 13px; }
@@ -146,6 +159,136 @@
       color: var(--text);
     }
     .ghost:hover { border-color: var(--accent-dim); }
+
+    .view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .view[hidden] { display: none !important; }
+    .page { flex: 1; overflow: auto; padding: 22px 24px 48px; width: 100%; max-width: 820px; }
+    .page h3 {
+      margin: 22px 0 10px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .page h3:first-child { margin-top: 0; }
+    .today-date { font-size: 26px; font-weight: 700; margin: 0 0 18px; letter-spacing: -0.02em; }
+    .today-date small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+    .quick-add, .task-add, .today-ask-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .quick-add input, .task-add input, .task-add select, .today-ask-form textarea, #noteSearch, #noteTitle, #noteBody {
+      background: #15130f;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 11px;
+    }
+    .quick-add input, .task-add input[type="text"] { flex: 1; min-width: 160px; }
+    .today-ask-form { align-items: flex-end; }
+    .today-ask-form textarea { flex: 1; min-height: 44px; max-height: 140px; resize: none; }
+    .today-ask { margin-top: 28px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .muted-empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+
+    .task-row, .note-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+    .task-row:hover, .note-card:hover { border-color: #524737; }
+    .task-row.done .task-title { text-decoration: line-through; color: var(--muted); }
+    .task-main { flex: 1; min-width: 0; }
+    .task-title { font-weight: 650; font-size: 15px; }
+    .task-meta { font-size: 12px; color: var(--muted); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .task-notes { font-size: 13px; color: var(--muted); margin-top: 4px; white-space: pre-wrap; }
+    .pri-high, .due-overdue { font-weight: 700; }
+    .pri-high { color: var(--accent); }
+    .due-overdue { color: var(--danger); }
+    .task-row input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+    .task-row input.edit-title, .task-row textarea.edit-notes {
+      width: 100%;
+      background: #15130f;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .task-row textarea.edit-notes { min-height: 52px; resize: vertical; margin-top: 6px; }
+    .task-actions { display: flex; gap: 2px; flex-shrink: 0; }
+    .filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+    .filters button {
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .filters button.active { border-color: var(--accent); color: var(--accent); background: #f4b94214; }
+    .count-pill { margin-left: 4px; font-size: 11px; opacity: 0.8; }
+
+    .notes-layout { flex: 1; display: flex; min-height: 0; }
+    .notes-rail {
+      width: 280px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      background: #191714;
+    }
+    .notes-rail-top { padding: 12px; display: flex; gap: 8px; }
+    .notes-rail-top input { flex: 1; min-width: 0; }
+    #noteList { flex: 1; overflow: auto; padding: 0 8px 12px; }
+    .note-item {
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-radius: 8px;
+      padding: 10px;
+      color: var(--text);
+      display: block;
+      margin-bottom: 4px;
+    }
+    .note-item:hover { background: var(--sidebar-hover); }
+    .note-item.active { background: var(--sidebar-active); }
+    .note-item .nt { font-weight: 650; display: flex; gap: 6px; align-items: center; }
+    .note-item .ns { font-size: 12px; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pin { color: var(--accent); }
+    .note-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+    .note-editor.empty-ed { align-items: center; justify-content: center; color: var(--muted); }
+    .note-toolbar { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    #noteTitle { flex: 1; font-size: 18px; font-weight: 700; border: 0; background: transparent; padding: 4px 0; }
+    #noteTitle:focus { outline: none; }
+    .note-body-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 16px 16px; }
+    #noteBody { flex: 1; min-height: 160px; resize: none; width: 100%; line-height: 1.55; }
+    .note-preview {
+      flex: 1;
+      overflow: auto;
+      font-size: 15px;
+      line-height: 1.55;
+      padding: 8px 2px;
+    }
+    .note-preview p { margin: 0 0 0.7em; }
+    .note-preview pre {
+      background: #100e0c;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+    .note-preview code { font-family: var(--mono); font-size: 0.92em; background: #0004; padding: 0.1em 0.35em; border-radius: 4px; }
+    .note-preview pre code { background: none; padding: 0; }
+    .note-preview a { color: var(--accent); }
+    .note-back { display: none; }
 
     .messages {
       flex: 1;
@@ -207,6 +350,15 @@
     .bubble a { color: var(--accent); }
     .bubble.pending { color: var(--muted); font-style: italic; }
     .err { color: var(--danger); }
+    .msg-tools {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .msg-tools div::before { content: "↳ "; color: var(--accent-dim); }
 
     .composer-wrap {
       padding: 0 18px 18px;
@@ -263,10 +415,12 @@
       border-radius: 16px;
       box-shadow: var(--shadow);
       padding: 20px;
+      max-height: calc(100vh - 48px);
+      overflow: auto;
     }
     .modal h3 { margin: 0 0 14px; }
     label { display: block; font-size: 12px; font-weight: 650; color: var(--muted); margin: 12px 0 6px; }
-    input[type="password"], input[type="text"], select, .modal textarea {
+    input[type="password"], input[type="text"], input[type="date"], select, .modal textarea {
       width: 100%;
       background: #15130f;
       border: 1px solid var(--line);
@@ -277,13 +431,13 @@
     .modal textarea { min-height: 80px; resize: vertical; }
     .row { display: flex; gap: 8px; align-items: center; }
     .row input { flex: 1; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
     .save { background: var(--accent); color: #1a1308; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; }
     .status { font-size: 12px; margin-top: 8px; color: var(--muted); }
     .status.ok { color: var(--ok); }
     .status.bad { color: var(--danger); }
     .menu-btn { display: none; }
-
+    .backup-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 
     .composer-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .attach-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 0; }
@@ -382,6 +536,12 @@
       .sidebar.open { transform: none; }
       .menu-btn { display: grid; }
       .msg { padding-left: 14px; padding-right: 14px; }
+      .notes-rail { width: 100%; }
+      .note-editor { display: none; }
+      .notes-layout.editing .notes-rail { display: none; }
+      .notes-layout.editing .note-editor { display: flex; }
+      .note-back { display: grid; }
+      .page { padding: 16px 16px 40px; }
     }
   </style>
 </head>
@@ -395,34 +555,104 @@
         </div>
         <button class="icon-btn" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
       </div>
-      <button class="new-chat" id="newChat">+ New channel</button>
+      <nav class="area-nav" aria-label="Workspace">
+        <button class="nav-item" id="navToday" type="button" data-view="today">
+          <span class="nav-ico">◎</span><span class="name">Today</span><span class="nav-badge" id="todayBadge"></span>
+        </button>
+        <button class="nav-item" id="navTasks" type="button" data-view="tasks">
+          <span class="nav-ico">☑</span><span class="name">Tasks</span>
+        </button>
+        <button class="nav-item" id="navNotes" type="button" data-view="notes">
+          <span class="nav-ico">✎</span><span class="name">Notes</span>
+        </button>
+      </nav>
       <div class="nav-label">Channels</div>
+      <button class="new-chat" id="newChat">+ New channel</button>
       <div class="channels" id="channels"></div>
     </aside>
     <section class="main">
       <header class="topbar">
         <div style="display:flex;align-items:center;gap:8px">
-          <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open channels">☰</button>
-          <h2 id="title"># general <span id="subtitle">AskNelson</span></h2>
+          <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open sidebar">☰</button>
+          <h2 id="title">Today <span id="subtitle">AskNelson</span></h2>
         </div>
         <div class="top-actions">
           <select class="ghost" id="modelSelect" aria-label="Model"></select>
           <button class="ghost" id="settingsBtn2">Settings</button>
         </div>
       </header>
-      <div class="messages" id="messages"></div>
-      <div class="composer-wrap">
-        <div class="composer" id="composer">
-          <div class="composer-main">
-            <div class="attach-list" id="attachList"></div>
-            <textarea id="input" rows="1" placeholder="Message AskNelson…  Enter to send, Shift+Enter for a new line"></textarea>
-          </div>
-          <input id="fileInput" type="file" multiple hidden accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp,.pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.rtf,.log,.yml,.yaml,.toml,.ini,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.sql,.css,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
-          <button class="attach-btn" id="attachBtn" type="button" title="Upload image or document" aria-label="Upload image or document">📎</button>
-          <button class="send" id="send">Send</button>
+
+      <div class="view" id="viewToday" hidden>
+        <div class="page">
+          <div class="today-date" id="todayDate"></div>
+          <form class="quick-add" id="todayQuickAdd">
+            <input id="todayTaskTitle" type="text" placeholder="Add a task for today…" autocomplete="off" />
+            <input id="todayTaskNote" type="text" placeholder="Note (optional)" autocomplete="off" />
+            <button class="save" type="submit">Add</button>
+          </form>
+          <h3>Overdue</h3>
+          <div id="todayOverdue"></div>
+          <h3>Today</h3>
+          <div id="todayDue"></div>
+          <h3>Recent notes</h3>
+          <div id="todayNotes"></div>
+          <section class="today-ask">
+            <h3>Ask Nelson</h3>
+            <form class="today-ask-form" id="todayAskForm">
+              <textarea id="todayAskInput" rows="1" placeholder="Ask Nelson to add a task, find a note, or anything else…"></textarea>
+              <button class="send" type="submit">Send</button>
+            </form>
+            <p class="hint">Sends to your last channel. AskNelson can manage tasks and notes from chat.</p>
+          </section>
         </div>
-        <div class="hint">Your API key and chat rooms stay in this browser. Live web + X search are on by default. Attach an image or a PDF with the paperclip, or drag it here. Get a key at console.x.ai — never commit it to the repo.</div>
-        <div class="hint" id="composerStatus"></div>
+      </div>
+
+      <div class="view" id="viewTasks" hidden>
+        <div class="page">
+          <div class="filters" id="taskFilters"></div>
+          <form class="task-add" id="taskAddForm">
+            <input id="taskAddTitle" type="text" placeholder="New task…" autocomplete="off" />
+            <input id="taskAddDue" type="date" aria-label="Due date" />
+            <select id="taskAddPriority" aria-label="Priority">
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+            </select>
+            <button class="save" type="submit">Add</button>
+          </form>
+          <div id="taskList"></div>
+        </div>
+      </div>
+
+      <div class="view" id="viewNotes" hidden>
+        <div class="notes-layout" id="notesLayout">
+          <aside class="notes-rail">
+            <div class="notes-rail-top">
+              <input id="noteSearch" type="text" placeholder="Search notes…" autocomplete="off" />
+              <button class="save" id="newNote" type="button">New</button>
+            </div>
+            <div id="noteList"></div>
+          </aside>
+          <div class="note-editor empty-ed" id="noteEditor">
+            <p>Select a note or create a new one.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="view view-chat" id="viewChat" hidden>
+        <div class="messages" id="messages"></div>
+        <div class="composer-wrap">
+          <div class="composer" id="composer">
+            <div class="composer-main">
+              <div class="attach-list" id="attachList"></div>
+              <textarea id="input" rows="1" placeholder="Message AskNelson…  Enter to send, Shift+Enter for a new line"></textarea>
+            </div>
+            <input id="fileInput" type="file" multiple hidden accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp,.pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.rtf,.log,.yml,.yaml,.toml,.ini,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.sql,.css,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
+            <button class="attach-btn" id="attachBtn" type="button" title="Upload image or document" aria-label="Upload image or document">📎</button>
+            <button class="send" id="send">Send</button>
+          </div>
+          <div class="hint">Your API key, rooms, tasks, and notes stay in this browser. Live web + X search are on by default. AskNelson can manage your tasks and notes from chat. Attach an image or a PDF with the paperclip, or drag it here. Get a key at console.x.ai — never commit it to the repo.</div>
+          <div class="hint" id="composerStatus"></div>
+        </div>
       </div>
     </section>
   </div>
@@ -450,7 +680,14 @@
         <input id="liveX" type="checkbox" checked />
         <div>X search<span>Let Grok search recent posts on X for the latest chatter. May bill per search.</span></div>
       </label>
-      <p class="status" id="settingsStatus">Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved in this browser’s credential store and on this device, together with your chat rooms, so you should not need to enter it again here. Live web and X search are on by default so answers can use the latest sources. The default model, grok-4.7, can also look at attached images (JPEG, PNG, and converted GIF/WebP).</p>
+      <label>Workspace backup</label>
+      <div class="backup-row">
+        <button class="ghost" id="exportBtn" type="button">Export</button>
+        <button class="ghost" id="importBtn" type="button">Import</button>
+        <input id="importFile" type="file" accept="application/json,.json" hidden />
+      </div>
+      <p class="hint" style="margin-top:8px">Exports tasks, notes, conversations, and settings. Your API key is not included. Import can merge with or replace existing workspace data.</p>
+      <p class="status" id="settingsStatus">Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved in this browser’s credential store and on this device, together with your chat rooms, tasks, and notes. Live web and X search are on by default so answers can use the latest sources. The default model, grok-4.7, can also look at attached images (JPEG, PNG, and converted GIF/WebP).</p>
       <div class="modal-actions">
         <button class="ghost" id="cancelSettings" type="button">Close</button>
         <button class="save" id="saveSettings" type="submit">Save</button>
@@ -459,994 +696,22 @@
     </div>
   </div>
 
+  <div class="modal-bg" id="importModal">
+    <div class="modal" role="dialog" aria-labelledby="importTitle">
+      <h3 id="importTitle">Import backup</h3>
+      <p class="status" id="importSummary"></p>
+      <p class="hint">Merge keeps existing items and adds or updates those in the file. Replace overwrites tasks, notes, and conversations. Your API key is never taken from a backup.</p>
+      <p class="status" id="importStatus"></p>
+      <div class="modal-actions">
+        <button class="ghost" id="cancelImport" type="button">Cancel</button>
+        <button class="ghost" id="mergeImport" type="button">Merge</button>
+        <button class="save" id="replaceImport" type="button">Replace</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.7/dist/purify.min.js"></script>
-  <script>
-    const MODELS = [
-      { id: "grok-4.7", label: "grok-4.7 (recommended)" },
-      { id: "grok-4.6", label: "grok-4.6" },
-      { id: "grok-4.5", label: "grok-4.5" },
-      { id: "grok-4.3", label: "grok-4.3" }
-    ];
-    const K = {
-      key: "asknelson:apiKey",
-      settings: "asknelson:settings",
-      convos: "asknelson:conversations",
-      active: "asknelson:activeId"
-    };
-    const LEGACY_K = {
-      key: "grok-chatbox:apiKey",
-      settings: "grok-chatbox:settings",
-      convos: "grok-chatbox:conversations",
-      active: "grok-chatbox:activeId"
-    };
-    const CRED_ID = "asknelson-xai";
-    const DEFAULT_PROMPT = "You are AskNelson, a helpful, clear, and slightly witty assistant powered by xAI Grok.";
-    const DEFAULT_BASE = "https://api.x.ai/v1";
-    // Filled in once the asknelson-proxy Cloudflare Worker is deployed.
-    const PROXY_BASE = "https://asknelson-proxy.cubecnelson.workers.dev/v1";
-    const DB_NAME = "asknelson";
-    const DB_STORE = "kv";
-
-    const $ = (id) => document.getElementById(id);
-    const MAX_FILE_BYTES = 50 * 1024 * 1024;
-    const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-    const FILE_EXTS = /\.(pdf|txt|text|md|markdown|csv|tsv|json|xml|html|htm|rtf|log|yml|yaml|toml|ini|cfg|conf|py|js|mjs|cjs|ts|tsx|jsx|java|c|cc|cpp|h|hpp|cs|go|rs|rb|php|sh|bash|zsh|sql|css|scss|less|docx?|xlsx?|pptx?)$/i;
-    const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|bmp)$/i;
-    const IMAGE_MIMES = /^image\/(jpeg|jpg|png|gif|webp|bmp)$/i;
-    const NATIVE_VISION_MIMES = /^image\/(jpeg|jpg|png)$/i;
-
-    const state = {
-      conversations: [],
-      activeId: null,
-      sending: false,
-      abort: null,
-      apiKey: "",
-      pendingFiles: []
-    };
-
-    function formatBytes(n) {
-      if (!n && n !== 0) return "";
-      if (n < 1024) return n + " B";
-      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
-      return (n / (1024 * 1024)).toFixed(1) + " MB";
-    }
-    function isImageFile(file) {
-      const name = (file && file.name) || "";
-      const type = (file && file.type) || "";
-      return IMAGE_MIMES.test(type) || IMAGE_EXTS.test(name);
-    }
-    function isAllowedFile(file) {
-      return isImageFile(file) || FILE_EXTS.test((file && file.name) || "");
-    }
-    function needsImageConversion(file) {
-      const type = ((file && file.type) || "").toLowerCase();
-      const name = (file && file.name) || "";
-      if (NATIVE_VISION_MIMES.test(type)) return false;
-      if (!type && /\.(jpe?g|png)$/i.test(name)) return false;
-      return true;
-    }
-    function dataUrlBytes(dataUrl) {
-      const str = String(dataUrl || "");
-      const i = str.indexOf(",");
-      const b64 = i >= 0 ? str.slice(i + 1) : str;
-      const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
-      return Math.max(0, Math.floor(b64.length * 3 / 4) - padding);
-    }
-    function readFileAsDataUrl(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error(file.name + ": could not read the image."));
-        reader.readAsDataURL(file);
-      });
-    }
-    function loadImageElement(url) {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error("Could not decode the image."));
-        img.src = url;
-      });
-    }
-    async function imageToDataUrl(file) {
-      if (file.size > MAX_IMAGE_BYTES) {
-        throw new Error(file.name + " is larger than 20 MB, the xAI image limit.");
-      }
-      if (!needsImageConversion(file)) {
-        return await readFileAsDataUrl(file);
-      }
-      const srcUrl = URL.createObjectURL(file);
-      try {
-        const img = await loadImageElement(srcUrl);
-        const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        if (!canvas.width || !canvas.height) {
-          throw new Error(file.name + " could not be converted. xAI vision accepts JPEG and PNG.");
-        }
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-        let dataUrl = canvas.toDataURL("image/png");
-        if (dataUrlBytes(dataUrl) > MAX_IMAGE_BYTES) {
-          dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-        }
-        if (dataUrlBytes(dataUrl) > MAX_IMAGE_BYTES) {
-          throw new Error(file.name + " is larger than 20 MB after conversion, the xAI image limit.");
-        }
-        return dataUrl;
-      } catch (err) {
-        if (err && /20 MB|xAI image limit|could not be converted|could not read/i.test(err.message || "")) throw err;
-        throw new Error(file.name + " could not be converted. xAI vision accepts JPEG and PNG.");
-      } finally {
-        URL.revokeObjectURL(srcUrl);
-      }
-    }
-    function revokePreview(item) {
-      if (item && item.previewUrl) {
-        URL.revokeObjectURL(item.previewUrl);
-        item.previewUrl = "";
-      }
-    }
-    function showComposerStatus(msg) {
-      const el = $("composerStatus");
-      if (el) el.textContent = msg || "";
-    }
-    function renderAttachList() {
-      const box = $("attachList");
-      if (!box) return;
-      box.innerHTML = "";
-      for (const item of state.pendingFiles) {
-        const chip = document.createElement("span");
-        chip.className = "file-chip" + (isImageFile(item.file) ? " is-image" : "");
-        if (isImageFile(item.file)) {
-          if (!item.previewUrl) item.previewUrl = URL.createObjectURL(item.file);
-          const thumb = document.createElement("img");
-          thumb.className = "thumb";
-          thumb.alt = "";
-          thumb.src = item.previewUrl;
-          chip.appendChild(thumb);
-        }
-        const fn = document.createElement("span");
-        fn.className = "fn";
-        fn.textContent = item.file.name;
-        fn.title = item.file.name;
-        const sz = document.createElement("span");
-        sz.className = "sz";
-        sz.textContent = formatBytes(item.file.size);
-        const x = document.createElement("button");
-        x.className = "x";
-        x.type = "button";
-        x.title = "Remove";
-        x.setAttribute("aria-label", "Remove " + item.file.name);
-        x.textContent = "✕";
-        x.addEventListener("click", () => {
-          revokePreview(item);
-          state.pendingFiles = state.pendingFiles.filter((f) => f.id !== item.id);
-          renderAttachList();
-        });
-        chip.append(fn, sz, x);
-        box.appendChild(chip);
-      }
-    }
-    function addPendingFiles(fileList) {
-      const errors = [];
-      for (const file of fileList || []) {
-        if (!isAllowedFile(file)) {
-          errors.push(file.name + " is not a supported image or document type. Images can be JPEG, PNG, GIF, or WebP.");
-          continue;
-        }
-        if (isImageFile(file)) {
-          if (file.size > MAX_IMAGE_BYTES) {
-            errors.push(file.name + " is larger than 20 MB, the xAI image limit.");
-            continue;
-          }
-        } else if (file.size > MAX_FILE_BYTES) {
-          errors.push(file.name + " is larger than 50 MB.");
-          continue;
-        }
-        if (state.pendingFiles.some((f) => f.file.name === file.name && f.file.size === file.size && f.file.lastModified === file.lastModified)) {
-          continue;
-        }
-        state.pendingFiles.push({ id: crypto.randomUUID(), file });
-      }
-      renderAttachList();
-      showComposerStatus(errors.join(" "));
-    }
-    function slimConversations(convos) {
-      return (convos || []).map((c) => ({
-        ...c,
-        messages: (c.messages || []).map((m) => {
-          if (!(m.attachments || []).some((a) => a && a.dataUrl)) return m;
-          return {
-            ...m,
-            attachments: m.attachments.map((a) => {
-              if (!a || !a.dataUrl) return a;
-              const copy = { ...a };
-              delete copy.dataUrl;
-              return copy;
-            })
-          };
-        })
-      }));
-    }
-    function convoRecency(list) {
-      let msgs = 0, last = 0, images = 0;
-      for (const c of list || []) {
-        for (const m of c.messages || []) {
-          msgs += 1;
-          if (m.ts > last) last = m.ts;
-          if ((m.attachments || []).some((a) => a && a.dataUrl)) images += 1;
-        }
-      }
-      return { msgs, last, images };
-    }
-    function preferConvoList(a, b) {
-      const lists = [a, b].filter((list) => Array.isArray(list) && list.length);
-      if (!lists.length) return [];
-      if (lists.length === 1) return lists[0];
-      const ra = convoRecency(a);
-      const rb = convoRecency(b);
-      if (ra.last !== rb.last) return ra.last >= rb.last ? a : b;
-      if (ra.images !== rb.images) return ra.images > rb.images ? a : b;
-      return ra.msgs >= rb.msgs ? a : b;
-    }
-
-    function migrateStorage() {
-      for (const name of Object.keys(K)) {
-        const fresh = localStorage.getItem(K[name]);
-        const legacy = localStorage.getItem(LEGACY_K[name]);
-        if (!fresh && legacy) localStorage.setItem(K[name], legacy);
-      }
-    }
-    function openDb() {
-      return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = () => {
-          if (!req.result.objectStoreNames.contains(DB_STORE)) {
-            req.result.createObjectStore(DB_STORE);
-          }
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
-    async function idbGet(key) {
-      try {
-        const db = await openDb();
-        return await new Promise((resolve, reject) => {
-          const tx = db.transaction(DB_STORE, "readonly");
-          const r = tx.objectStore(DB_STORE).get(key);
-          r.onsuccess = () => resolve(r.result);
-          r.onerror = () => reject(r.error);
-        });
-      } catch {
-        return undefined;
-      }
-    }
-    async function idbSet(key, value) {
-      try {
-        const db = await openDb();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(DB_STORE, "readwrite");
-          const r = tx.objectStore(DB_STORE).put(value, key);
-          r.onsuccess = () => resolve();
-          r.onerror = () => reject(r.error);
-          tx.onerror = () => reject(tx.error);
-        });
-      } catch {}
-    }
-    async function idbDel(key) {
-      try {
-        const db = await openDb();
-        await new Promise((resolve, reject) => {
-          const tx = db.transaction(DB_STORE, "readwrite");
-          const r = tx.objectStore(DB_STORE).delete(key);
-          r.onsuccess = () => resolve();
-          r.onerror = () => reject(r.error);
-        });
-      } catch {}
-    }
-
-    function loadSettings() {
-      let s = {};
-      try { s = JSON.parse(localStorage.getItem(K.settings) || "{}"); } catch {}
-      return {
-        model: s.model || "grok-4.7",
-        baseUrl: s.baseUrl || DEFAULT_BASE,
-        systemPrompt: s.systemPrompt || DEFAULT_PROMPT,
-        liveWeb: s.liveWeb !== false,
-        liveX: s.liveX !== false
-      };
-    }
-    function saveSettingsObj(s) {
-      localStorage.setItem(K.settings, JSON.stringify(s));
-      idbSet("settings", s);
-    }
-    function getKey() { return state.apiKey || localStorage.getItem(K.key) || ""; }
-    async function setKey(v) {
-      state.apiKey = v || "";
-      if (v) {
-        localStorage.setItem(K.key, v);
-        await idbSet("apiKey", v);
-        try {
-          if (window.PasswordCredential && navigator.credentials && navigator.credentials.store) {
-            await navigator.credentials.store(new PasswordCredential({
-              id: CRED_ID,
-              name: "AskNelson xAI API key",
-              password: v
-            }));
-          }
-        } catch {}
-      } else {
-        localStorage.removeItem(K.key);
-        await idbDel("apiKey");
-      }
-    }
-    async function restoreKey() {
-      migrateStorage();
-      state.apiKey = localStorage.getItem(K.key) || "";
-      if (!state.apiKey) {
-        const fromIdb = await idbGet("apiKey");
-        if (fromIdb) {
-          state.apiKey = fromIdb;
-          localStorage.setItem(K.key, fromIdb);
-        }
-      }
-      if (!state.apiKey) {
-        try {
-          if (navigator.credentials && navigator.credentials.get) {
-            const cred = await navigator.credentials.get({
-              password: true,
-              mediation: "silent"
-            });
-            if (cred && cred.password) {
-              state.apiKey = cred.password;
-              localStorage.setItem(K.key, cred.password);
-              await idbSet("apiKey", cred.password);
-            }
-          }
-        } catch {}
-      }
-      return state.apiKey;
-    }
-    async function loadConvos() {
-      migrateStorage();
-      let fromLs = [];
-      try { fromLs = JSON.parse(localStorage.getItem(K.convos) || "[]"); }
-      catch { fromLs = []; }
-      const fromIdb = await idbGet("conversations");
-      const list = preferConvoList(fromIdb, fromLs);
-      state.conversations = list;
-      if (!state.conversations.length) {
-        const first = makeConvo("general");
-        state.conversations = [first];
-        state.activeId = first.id;
-        persistConvos();
-      } else {
-        const fromIdbActive = await idbGet("activeId");
-        state.activeId = localStorage.getItem(K.active) || fromIdbActive || state.conversations[0].id;
-        if (!state.conversations.some((c) => c.id === state.activeId)) {
-          state.activeId = state.conversations[0].id;
-        }
-        persistConvos();
-      }
-    }
-    function persistConvos() {
-      try {
-        localStorage.setItem(K.convos, JSON.stringify(slimConversations(state.conversations)));
-        if (state.activeId) localStorage.setItem(K.active, state.activeId);
-      } catch {}
-      idbSet("conversations", state.conversations);
-      if (state.activeId) idbSet("activeId", state.activeId);
-    }
-    function makeConvo(name) {
-      return {
-        id: crypto.randomUUID(),
-        name: name || "new-chat",
-        messages: [],
-        createdAt: Date.now()
-      };
-    }
-    function active() {
-      return state.conversations.find((c) => c.id === state.activeId);
-    }
-
-    function renderChannels() {
-      const box = $("channels");
-      box.innerHTML = "";
-      for (const c of state.conversations) {
-        const b = document.createElement("button");
-        b.className = "channel" + (c.id === state.activeId ? " active" : "");
-        b.innerHTML = `<span class="hash">#</span><span class="name"></span><span class="channel-actions"></span>`;
-        b.querySelector(".name").textContent = c.name;
-        const actions = b.querySelector(".channel-actions");
-        const ren = document.createElement("button");
-        ren.className = "tiny";
-        ren.title = "Rename";
-        ren.textContent = "✎";
-        ren.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const next = prompt("Channel name", c.name);
-          if (next && next.trim()) {
-            c.name = next.trim().replace(/\s+/g, "-").replace(/^#/, "");
-            persistConvos();
-            renderChannels();
-            renderMain();
-          }
-        });
-        const del = document.createElement("button");
-        del.className = "tiny";
-        del.title = "Delete";
-        del.textContent = "✕";
-        del.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (state.conversations.length === 1) {
-            c.messages = [];
-            c.name = "general";
-          } else {
-            state.conversations = state.conversations.filter((x) => x.id !== c.id);
-            if (state.activeId === c.id) state.activeId = state.conversations[0].id;
-          }
-          persistConvos();
-          renderChannels();
-          renderMain();
-        });
-        actions.append(ren, del);
-        b.addEventListener("click", () => {
-          state.activeId = c.id;
-          persistConvos();
-          $("sidebar").classList.remove("open");
-          renderChannels();
-          renderMain();
-        });
-        box.appendChild(b);
-      }
-    }
-
-    function md(text) {
-      const raw = marked.parse(text || "", { breaks: true, gfm: true });
-      return DOMPurify.sanitize(raw);
-    }
-    function fmtTime(ts) {
-      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }
-    function shouldGroup(prev, cur) {
-      return prev && prev.role === cur.role && (cur.ts - prev.ts) < 5 * 60 * 1000;
-    }
-
-    function renderMain() {
-      const c = active();
-      $("title").innerHTML = `# ${escapeHtml(c.name)} <span id="subtitle">${escapeHtml(loadSettings().model)}</span>`;
-      const box = $("messages");
-      box.innerHTML = "";
-      if (!getKey() && !c.messages.length) {
-        box.innerHTML = `<div class="empty">
-          <h3>Welcome to AskNelson</h3>
-          <p>This is a Slack-style chat page powered by xAI Grok. Open Settings, paste an API key from <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>, then send a message.</p>
-          <p>Live web and X search are on by default, so AskNelson can pull the latest sources. Your key and chat rooms stay in this browser. The key is never stored in the GitHub repo.</p>
-        </div>`;
-        return;
-      }
-      if (!c.messages.length) {
-        box.innerHTML = `<div class="empty"><h3>#${escapeHtml(c.name)}</h3><p>This channel is empty. Say hello to AskNelson.</p></div>`;
-        return;
-      }
-      c.messages.forEach((m, i) => {
-        const prev = c.messages[i - 1];
-        const grouped = shouldGroup(prev, m);
-        const el = document.createElement("article");
-        el.className = "msg" + (grouped ? " grouped" : "");
-        const who = m.role === "user" ? "You" : m.role === "assistant" ? "AskNelson" : "Error";
-        const avClass = m.role === "user" ? "you" : m.role === "assistant" ? "grok" : "error";
-        const initial = who[0];
-        const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
-        const pendingLabel = m.upload
-          ? (m.upload === "image" ? "Preparing image…" : "Uploading attachment…")
-          : (m.searching ? "Searching live sources…" : "AskNelson is thinking…");
-        const filesHtml = (m.attachments && m.attachments.length)
-          ? `<div class="msg-files">${m.attachments.map(attachmentHtml).join("")}</div>`
-          : "";
-        const sources = Array.isArray(m.sources) ? m.sources.filter(Boolean) : [];
-        const sourcesHtml = sources.length
-          ? `<div class="msg-sources"><strong>Sources</strong><ol>${sources.map((u) =>
-              `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(u)}</a></li>`
-            ).join("")}</ol></div>`
-          : "";
-        el.innerHTML = `
-          <div>${grouped ? "" : `<div class="avatar ${avClass}">${initial}</div>`}</div>
-          <div>
-            ${grouped ? "" : `<div class="meta"><span class="who">${who}</span><span class="when">${fmtTime(m.ts)}</span></div>`}
-            <div class="${bodyClass}">${m.pending && !m.content ? pendingLabel : md(m.content)}</div>
-            ${filesHtml}
-            ${sourcesHtml}
-          </div>`;
-        box.appendChild(el);
-      });
-      box.scrollTop = box.scrollHeight;
-    }
-    function escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, (ch) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-      }[ch]));
-    }
-    function attachmentHtml(f) {
-      if (f && f.kind === "image" && f.dataUrl) {
-        return `<a class="msg-thumb-link" href="${escapeHtml(f.dataUrl)}" target="_blank" rel="noopener"><img class="msg-thumb" src="${escapeHtml(f.dataUrl)}" alt="${escapeHtml(f.filename || "image")}"></a>`;
-      }
-      return `<span class="file-chip" title="${escapeHtml((f && f.filename) || "")}"><span class="fn">${escapeHtml((f && f.filename) || "document")}</span></span>`;
-    }
-    function defaultAttachmentPrompt(attachments) {
-      const list = attachments || [];
-      const images = list.filter((a) => a.kind === "image").length;
-      const docs = list.length - images;
-      if (images && docs) return "Please review the attached images and documents.";
-      if (images > 1) return "What's in these images?";
-      if (images === 1) return "What's in this image?";
-      if (docs > 1) return "Please review the attached documents.";
-      return "Please review the attached document.";
-    }
-    function hasImageAttachments(messages, pending) {
-      return (messages || []).some((m) => m !== pending && (m.attachments || []).some((a) => a && a.kind === "image" && a.dataUrl));
-    }
-
-    function fillModels() {
-      const sel = $("modelSelect");
-      const cur = loadSettings().model;
-      sel.innerHTML = MODELS.map((m) =>
-        `<option value="${m.id}" ${m.id === cur ? "selected" : ""}>${m.label}</option>`
-      ).join("");
-    }
-
-    function openSettings() {
-      const s = loadSettings();
-      $("apiKey").value = getKey();
-      $("baseUrl").value = s.baseUrl;
-      $("sysPrompt").value = s.systemPrompt;
-      $("liveWeb").checked = s.liveWeb !== false;
-      $("liveX").checked = s.liveX !== false;
-      $("settingsStatus").className = "status";
-      $("modal").classList.add("open");
-      $("apiKey").focus();
-    }
-    function closeSettings() { $("modal").classList.remove("open"); }
-
-    function apiBases(s) {
-      const bases = [];
-      const add = (u) => {
-        if (!u) return;
-        const n = String(u).replace(/\/$/, "");
-        if (n && !bases.includes(n)) bases.push(n);
-      };
-      const saved = s && s.baseUrl;
-      if (saved && saved !== DEFAULT_BASE) add(saved);
-      add(PROXY_BASE);
-      add(DEFAULT_BASE);
-      return bases;
-    }
-    function isCorsFailure(err) {
-      const msg = String(err && (err.message || err) || "");
-      return err && (err.name === "TypeError" || /Failed to fetch|NetworkError|CORS|Load failed/i.test(msg));
-    }
-    async function apiPostJson(path, payload, s, signal, accept) {
-      const body = JSON.stringify(payload);
-      const headers = {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + getKey()
-      };
-      if (accept) headers.Accept = accept;
-      const bases = apiBases(s);
-      const rel = path.startsWith("/") ? path : "/" + path;
-      let lastErr = null;
-      for (let i = 0; i < bases.length; i++) {
-        try {
-          const res = await fetch(bases[i] + rel, {
-            method: "POST",
-            headers,
-            body,
-            signal
-          });
-          return res;
-        } catch (err) {
-          if (err && err.name === "AbortError") throw err;
-          lastErr = err;
-          if (!isCorsFailure(err) || i === bases.length - 1) throw err;
-        }
-      }
-      throw lastErr || new Error("Request failed");
-    }
-    async function postChat(payload, s, signal) {
-      return apiPostJson("/chat/completions", payload, s, signal);
-    }
-    async function uploadFile(file, s, signal) {
-      const bases = apiBases(s);
-      let lastErr = null;
-      for (let i = 0; i < bases.length; i++) {
-        const form = new FormData();
-        form.append("expires_after", "604800");
-        form.append("purpose", "assistants");
-        form.append("file", file, file.name);
-        try {
-          const res = await fetch(bases[i] + "/files", {
-            method: "POST",
-            headers: {
-              Authorization: "Bearer " + getKey(),
-              Accept: "application/json"
-            },
-            body: form,
-            signal
-          });
-          if (!res.ok) {
-            let detail = await res.text();
-            try { detail = JSON.parse(detail).error || detail; } catch {}
-            if (typeof detail === "object") detail = detail.message || JSON.stringify(detail);
-            throw new Error((file.name + ": " + res.status + " " + (detail || res.statusText)).trim());
-          }
-          const meta = await res.json();
-          if (!meta || !meta.id) throw new Error(file.name + ": upload did not return a file id.");
-          return meta;
-        } catch (err) {
-          if (err && err.name === "AbortError") throw err;
-          lastErr = err;
-          if (!isCorsFailure(err) || i === bases.length - 1) throw err;
-        }
-      }
-      throw lastErr || new Error("Upload failed");
-    }
-    function textFromCompleted(json) {
-      const output = (json && json.response && json.response.output) || (json && json.output) || [];
-      let t = "";
-      for (const item of output) {
-        for (const part of item.content || []) {
-          if ((part.type === "output_text" || part.type === "text") && part.text) t += part.text;
-        }
-      }
-      return t;
-    }
-    function toResponsesInput(messages, pending) {
-      const input = [];
-      for (const m of messages) {
-        if (m === pending) continue;
-        if (m.role === "user") {
-          const parts = [];
-          if (m.content) parts.push({ type: "input_text", text: m.content });
-          for (const f of m.attachments || []) {
-            if (f.kind === "image" && f.dataUrl) {
-              parts.push({ type: "input_image", image_url: f.dataUrl, detail: "high" });
-            } else if (f.id) {
-              parts.push({ type: "input_file", file_id: f.id });
-            }
-          }
-          if (!parts.length) continue;
-          input.push({ role: "user", content: parts });
-        } else if (m.role === "assistant" && m.content) {
-          input.push({ role: "assistant", content: m.content });
-        }
-      }
-      return input;
-    }
-    function liveTools(s) {
-      const tools = [];
-      if (s.liveWeb !== false) tools.push({ type: "web_search" });
-      if (s.liveX !== false) tools.push({ type: "x_search" });
-      return tools;
-    }
-    function addSource(pending, url) {
-      if (!url || typeof url !== "string") return;
-      if (!pending.sources) pending.sources = [];
-      if (!pending.sources.includes(url)) pending.sources.push(url);
-    }
-    function collectSourcesFromEvent(pending, json) {
-      if (!json || typeof json !== "object") return;
-      if (Array.isArray(json.citations)) {
-        for (const c of json.citations) {
-          if (typeof c === "string") addSource(pending, c);
-          else if (c && typeof c.url === "string") addSource(pending, c.url);
-        }
-      }
-      const resp = json.response;
-      if (resp && Array.isArray(resp.citations)) {
-        for (const c of resp.citations) {
-          if (typeof c === "string") addSource(pending, c);
-          else if (c && typeof c.url === "string") addSource(pending, c.url);
-        }
-      }
-      if (json.annotation && json.annotation.url) addSource(pending, json.annotation.url);
-      if (json.item && json.item.action && json.item.action.url) addSource(pending, json.item.action.url);
-      if (json.action && json.action.url) addSource(pending, json.action.url);
-      if (Array.isArray(json.item && json.item.action && json.item.action.sources)) {
-        for (const src of json.item.action.sources) {
-          if (typeof src === "string") addSource(pending, src);
-          else if (src && src.url) addSource(pending, src.url);
-        }
-      }
-    }
-    function isSearchEvent(type) {
-      return /web_search_call|x_search_call|file_search_call|searching|in_progress/.test(type || "");
-    }
-
-    async function sendMessage() {
-      if (state.sending) return;
-      const text = $("input").value.trim();
-      const toUpload = state.pendingFiles.slice();
-      if (!text && !toUpload.length) return;
-      if (!getKey()) {
-        openSettings();
-        $("settingsStatus").textContent = "Add an xAI API key before chatting.";
-        $("settingsStatus").className = "status bad";
-        return;
-      }
-      const c = active();
-      const userMsg = { role: "user", content: text, ts: Date.now(), attachments: [] };
-      c.messages.push(userMsg);
-      const pending = {
-        role: "assistant",
-        content: "",
-        ts: Date.now(),
-        pending: true,
-        upload: toUpload.length
-          ? (toUpload.every((item) => isImageFile(item.file)) ? "image" : "file")
-          : false
-      };
-      c.messages.push(pending);
-      $("input").value = "";
-      state.pendingFiles.forEach(revokePreview);
-      state.pendingFiles = [];
-      autosize();
-      renderAttachList();
-      showComposerStatus("");
-      persistConvos();
-      renderMain();
-      state.sending = true;
-      $("send").disabled = true;
-      const s = loadSettings();
-      const ctrl = new AbortController();
-      state.abort = ctrl;
-      try {
-        if (toUpload.length) {
-          for (const item of toUpload) {
-            if (isImageFile(item.file)) {
-              const dataUrl = await imageToDataUrl(item.file);
-              userMsg.attachments.push({
-                kind: "image",
-                filename: item.file.name,
-                bytes: item.file.size,
-                mime: item.file.type || "",
-                dataUrl
-              });
-            } else {
-              const meta = await uploadFile(item.file, s, ctrl.signal);
-              userMsg.attachments.push({
-                kind: "file",
-                id: meta.id,
-                filename: meta.filename || item.file.name,
-                bytes: meta.bytes || item.file.size
-              });
-            }
-            persistConvos();
-            renderMain();
-          }
-          pending.upload = false;
-          if (!userMsg.content) userMsg.content = defaultAttachmentPrompt(userMsg.attachments);
-          persistConvos();
-          renderMain();
-        }
-        const hasFiles = c.messages.some((m) => m !== pending && m.attachments && m.attachments.length);
-        const tools = liveTools(s);
-        const useResponses = hasFiles || tools.length > 0;
-        let res;
-        if (useResponses) {
-          const payload = {
-            model: s.model || "grok-4.7",
-            instructions: s.systemPrompt || DEFAULT_PROMPT,
-            input: toResponsesInput(c.messages, pending),
-            stream: true
-          };
-          if (tools.length) payload.tools = tools;
-          if (hasImageAttachments(c.messages, pending)) payload.store = false;
-          res = await apiPostJson("/responses", payload, s, ctrl.signal, "text/event-stream");
-        } else {
-          const messages = [
-            { role: "system", content: s.systemPrompt || DEFAULT_PROMPT },
-            ...c.messages
-              .filter((m) => m.role === "user" || (m.role === "assistant" && m !== pending && m.content))
-              .map((m) => ({ role: m.role, content: m.content }))
-          ];
-          res = await postChat({
-            model: s.model || "grok-4.7",
-            messages,
-            stream: true
-          }, s, ctrl.signal);
-        }
-        if (!res.ok) {
-          let detail = await res.text();
-          try { detail = JSON.parse(detail).error || detail; } catch {}
-          if (typeof detail === "object") detail = detail.message || JSON.stringify(detail);
-          throw new Error(res.status + " " + (detail || res.statusText));
-        }
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        let buf = "";
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-          const parts = buf.split("\n");
-          buf = parts.pop();
-          for (const line of parts) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-            const data = trimmed.slice(5).trim();
-            if (data === "[DONE]") continue;
-            try {
-              const json = JSON.parse(data);
-              if (useResponses) {
-                const type = json.type || "";
-                collectSourcesFromEvent(pending, json);
-                if (type === "response.output_text.delta" && json.delta) {
-                  pending.content += json.delta;
-                  pending.searching = false;
-                  pending.pending = false;
-                  persistConvos();
-                  renderMain();
-                } else if (isSearchEvent(type) && !pending.content) {
-                  pending.searching = true;
-                  renderMain();
-                } else if (type === "response.failed" || type === "error") {
-                  const msg = json.message || (json.error && json.error.message) || json.error || "Response failed";
-                  throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
-                } else if ((type === "response.completed" || type === "response.output_text.done")) {
-                  if (!pending.content) {
-                    const textOut = json.text || textFromCompleted(json);
-                    if (textOut) pending.content = textOut;
-                  }
-                  collectSourcesFromEvent(pending, json);
-                  pending.searching = false;
-                  pending.pending = false;
-                  persistConvos();
-                  renderMain();
-                }
-              } else {
-                const piece = json.choices?.[0]?.delta?.content || json.choices?.[0]?.message?.content || "";
-                if (piece) {
-                  pending.content += piece;
-                  pending.pending = false;
-                  persistConvos();
-                  renderMain();
-                }
-              }
-            } catch (parseErr) {
-              if (parseErr && parseErr.message && !/JSON/i.test(parseErr.message) && parseErr.name !== "SyntaxError") throw parseErr;
-            }
-          }
-        }
-        if (!pending.content) pending.content = "(No response)";
-        pending.pending = false;
-      } catch (err) {
-        if (err.name === "AbortError") {
-          if (!pending.content) pending.content = "(Stopped)";
-        } else {
-          c.messages.pop();
-          const uploaded = (userMsg.attachments || []).length;
-          if (toUpload.length && uploaded < toUpload.length) {
-            state.pendingFiles = toUpload.slice(uploaded).concat(state.pendingFiles);
-            renderAttachList();
-            if (!uploaded && !text) {
-              c.messages.pop();
-              $("input").value = text;
-              autosize();
-            }
-          }
-          const cors = isCorsFailure(err);
-          c.messages.push({
-            role: "error",
-            content: cors
-              ? "The browser blocked the request to api.x.ai (CORS preflight failed). AskNelson will retry through a small proxy once it is deployed; you can also paste a proxy API base URL in Settings. If you use Microsoft Edge, try turning off Tracking Prevention for this site, or use Chrome."
-              : "Request failed: " + (err.message || err),
-            ts: Date.now()
-          });
-        }
-      } finally {
-        pending.pending = false;
-        state.sending = false;
-        state.abort = null;
-        $("send").disabled = false;
-        persistConvos();
-        renderMain();
-        $("input").focus();
-      }
-    }
-
-    function autosize() {
-      const el = $("input");
-      el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 160) + "px";
-    }
-
-    async function init() {
-      await restoreKey();
-      await loadConvos();
-      fillModels();
-      renderChannels();
-      renderMain();
-      $("newChat").addEventListener("click", () => {
-        const c = makeConvo("chat-" + (state.conversations.length + 1));
-        state.conversations.unshift(c);
-        state.activeId = c.id;
-        persistConvos();
-        renderChannels();
-        renderMain();
-        $("input").focus();
-      });
-      $("settingsBtn").addEventListener("click", openSettings);
-      $("settingsBtn2").addEventListener("click", openSettings);
-      $("cancelSettings").addEventListener("click", closeSettings);
-      $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) closeSettings(); });
-      $("toggleKey").addEventListener("click", () => {
-        const i = $("apiKey");
-        i.type = i.type === "password" ? "text" : "password";
-        $("toggleKey").textContent = i.type === "password" ? "Show" : "Hide";
-      });
-      $("settingsForm").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const key = $("apiKey").value.trim();
-        await setKey(key);
-        const s = loadSettings();
-        s.baseUrl = $("baseUrl").value.trim() || DEFAULT_BASE;
-        s.systemPrompt = $("sysPrompt").value.trim() || DEFAULT_PROMPT;
-        s.liveWeb = $("liveWeb").checked;
-        s.liveX = $("liveX").checked;
-        saveSettingsObj(s);
-        $("settingsStatus").textContent = key
-          ? "Saved on this device. Your API key and chat rooms will still be here next time."
-          : "Key cleared.";
-        $("settingsStatus").className = "status ok";
-        fillModels();
-        renderMain();
-      });
-      $("apiKey").addEventListener("change", async () => {
-        const key = $("apiKey").value.trim();
-        if (key) await setKey(key);
-      });
-      $("modelSelect").addEventListener("change", () => {
-        const s = loadSettings();
-        s.model = $("modelSelect").value;
-        saveSettingsObj(s);
-        renderMain();
-      });
-      $("send").addEventListener("click", sendMessage);
-      $("input").addEventListener("input", autosize);
-      $("input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          sendMessage();
-        }
-      });
-      $("attachBtn").addEventListener("click", () => $("fileInput").click());
-      $("fileInput").addEventListener("change", () => {
-        addPendingFiles($("fileInput").files);
-        $("fileInput").value = "";
-      });
-      const composer = $("composer");
-      composer.addEventListener("dragover", (e) => {
-        if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) {
-          e.preventDefault();
-          composer.classList.add("dragover");
-        }
-      });
-      composer.addEventListener("dragleave", (e) => {
-        if (!composer.contains(e.relatedTarget)) composer.classList.remove("dragover");
-      });
-      composer.addEventListener("drop", (e) => {
-        e.preventDefault();
-        composer.classList.remove("dragover");
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-          addPendingFiles(e.dataTransfer.files);
-        }
-      });
-      $("menuBtn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
-    }
-    init();
-  </script>
+  <script src="./app.js"></script>
 </body>
 </html>
