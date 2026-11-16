@@ -11,7 +11,8 @@ This page talks to the official xAI API from your browser. It is not an embed of
 1. Open the [live site](https://cubecnelson.github.io/asknelson/).
 2. Click **Settings** and paste an API key from [console.x.ai](https://console.x.ai).
 3. Start a channel and chat. The default model is `grok-4.7`.
-4. Attach a document with the paperclip button, or drag a file onto the composer, then send. AskNelson uploads it to the xAI Files API and Grok can read it in that channel.
+4. Live **web search** and **X search** are on by default via the xAI Responses API, so answers can use current sources. Turn either one off in Settings if you want offline/model-only replies. Search usage may add xAI tool charges on top of tokens.
+5. Attach a document with the paperclip button, or drag a file onto the composer, then send. AskNelson uploads it to the xAI Files API and Grok can read it in that channel.
 
 Supported attachments include PDF, text, Markdown, CSV, JSON, HTML, common Office documents, and source-code files, up to 50 MB each. Uploaded files expire after 7 days on xAI's side. The file itself is not stored in this repository or in GitHub Pages; only the file id and filename are kept in this browser with the chat room.
 
