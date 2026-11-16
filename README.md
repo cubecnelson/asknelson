@@ -34,7 +34,7 @@ Deploy from `proxy/`:
 npx wrangler deploy
 ```
 
-Then set the worker URL (for example `https://asknelson-proxy.<your-subdomain>.workers.dev/v1`) as the API base URL in Settings, or put it in `PROXY_BASE` in `index.html`.
+The live proxy is `https://asknelson-proxy.cubecnelson.workers.dev/v1`. AskNelson uses it automatically. You can also paste that URL as the API base in Settings.
 
 ## License
 
