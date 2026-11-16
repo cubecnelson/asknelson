@@ -326,7 +326,31 @@
     }
     .attach-btn:hover { color: var(--accent); background: #ffffff0a; }
     .composer.dragover { border-color: var(--accent); background: #f4b94214; }
-    .msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .msg-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: flex-end; }
+    .file-chip.is-image { max-width: 280px; }
+    .file-chip .thumb {
+      width: 36px;
+      height: 36px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex-shrink: 0;
+      background: #0c0b09;
+    }
+    .msg-thumb-link {
+      display: inline-block;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      line-height: 0;
+      background: #0c0b09;
+    }
+    .msg-thumb {
+      display: block;
+      max-width: min(280px, 70vw);
+      max-height: 200px;
+      object-fit: contain;
+      vertical-align: bottom;
+    }
     #composerStatus:empty { display: none; }
     #composerStatus { color: var(--danger); }
 
@@ -393,11 +417,11 @@
             <div class="attach-list" id="attachList"></div>
             <textarea id="input" rows="1" placeholder="Message AskNelson…  Enter to send, Shift+Enter for a new line"></textarea>
           </div>
-          <input id="fileInput" type="file" multiple hidden accept=".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.rtf,.log,.yml,.yaml,.toml,.ini,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.sql,.css,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
-          <button class="attach-btn" id="attachBtn" type="button" title="Upload document" aria-label="Upload document">📎</button>
+          <input id="fileInput" type="file" multiple hidden accept="image/jpeg,image/png,image/gif,image/webp,image/bmp,.jpg,.jpeg,.png,.gif,.webp,.bmp,.pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.rtf,.log,.yml,.yaml,.toml,.ini,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.sh,.sql,.css,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
+          <button class="attach-btn" id="attachBtn" type="button" title="Upload image or document" aria-label="Upload image or document">📎</button>
           <button class="send" id="send">Send</button>
         </div>
-        <div class="hint">Your API key and chat rooms stay in this browser. Live web + X search are on by default. Attach a PDF with the paperclip, or drag it here. Get a key at console.x.ai — never commit it to the repo.</div>
+        <div class="hint">Your API key and chat rooms stay in this browser. Live web + X search are on by default. Attach an image or a PDF with the paperclip, or drag it here. Get a key at console.x.ai — never commit it to the repo.</div>
         <div class="hint" id="composerStatus"></div>
       </div>
     </section>
@@ -426,7 +450,7 @@
         <input id="liveX" type="checkbox" checked />
         <div>X search<span>Let Grok search recent posts on X for the latest chatter. May bill per search.</span></div>
       </label>
-      <p class="status" id="settingsStatus">Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved in this browser’s credential store and on this device, together with your chat rooms, so you should not need to enter it again here. Live web and X search are on by default so answers can use the latest sources.</p>
+      <p class="status" id="settingsStatus">Create a key at <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved in this browser’s credential store and on this device, together with your chat rooms, so you should not need to enter it again here. Live web and X search are on by default so answers can use the latest sources. The default model, grok-4.7, can also look at attached images (JPEG, PNG, and converted GIF/WebP).</p>
       <div class="modal-actions">
         <button class="ghost" id="cancelSettings" type="button">Close</button>
         <button class="save" id="saveSettings" type="submit">Save</button>
@@ -466,7 +490,11 @@
 
     const $ = (id) => document.getElementById(id);
     const MAX_FILE_BYTES = 50 * 1024 * 1024;
+    const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
     const FILE_EXTS = /\.(pdf|txt|text|md|markdown|csv|tsv|json|xml|html|htm|rtf|log|yml|yaml|toml|ini|cfg|conf|py|js|mjs|cjs|ts|tsx|jsx|java|c|cc|cpp|h|hpp|cs|go|rs|rb|php|sh|bash|zsh|sql|css|scss|less|docx?|xlsx?|pptx?)$/i;
+    const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|bmp)$/i;
+    const IMAGE_MIMES = /^image\/(jpeg|jpg|png|gif|webp|bmp)$/i;
+    const NATIVE_VISION_MIMES = /^image\/(jpeg|jpg|png)$/i;
 
     const state = {
       conversations: [],
@@ -483,8 +511,82 @@
       if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
       return (n / (1024 * 1024)).toFixed(1) + " MB";
     }
+    function isImageFile(file) {
+      const name = (file && file.name) || "";
+      const type = (file && file.type) || "";
+      return IMAGE_MIMES.test(type) || IMAGE_EXTS.test(name);
+    }
     function isAllowedFile(file) {
-      return FILE_EXTS.test((file && file.name) || "");
+      return isImageFile(file) || FILE_EXTS.test((file && file.name) || "");
+    }
+    function needsImageConversion(file) {
+      const type = ((file && file.type) || "").toLowerCase();
+      const name = (file && file.name) || "";
+      if (NATIVE_VISION_MIMES.test(type)) return false;
+      if (!type && /\.(jpe?g|png)$/i.test(name)) return false;
+      return true;
+    }
+    function dataUrlBytes(dataUrl) {
+      const str = String(dataUrl || "");
+      const i = str.indexOf(",");
+      const b64 = i >= 0 ? str.slice(i + 1) : str;
+      const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+      return Math.max(0, Math.floor(b64.length * 3 / 4) - padding);
+    }
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error(file.name + ": could not read the image."));
+        reader.readAsDataURL(file);
+      });
+    }
+    function loadImageElement(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Could not decode the image."));
+        img.src = url;
+      });
+    }
+    async function imageToDataUrl(file) {
+      if (file.size > MAX_IMAGE_BYTES) {
+        throw new Error(file.name + " is larger than 20 MB, the xAI image limit.");
+      }
+      if (!needsImageConversion(file)) {
+        return await readFileAsDataUrl(file);
+      }
+      const srcUrl = URL.createObjectURL(file);
+      try {
+        const img = await loadImageElement(srcUrl);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        if (!canvas.width || !canvas.height) {
+          throw new Error(file.name + " could not be converted. xAI vision accepts JPEG and PNG.");
+        }
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        let dataUrl = canvas.toDataURL("image/png");
+        if (dataUrlBytes(dataUrl) > MAX_IMAGE_BYTES) {
+          dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+        }
+        if (dataUrlBytes(dataUrl) > MAX_IMAGE_BYTES) {
+          throw new Error(file.name + " is larger than 20 MB after conversion, the xAI image limit.");
+        }
+        return dataUrl;
+      } catch (err) {
+        if (err && /20 MB|xAI image limit|could not be converted|could not read/i.test(err.message || "")) throw err;
+        throw new Error(file.name + " could not be converted. xAI vision accepts JPEG and PNG.");
+      } finally {
+        URL.revokeObjectURL(srcUrl);
+      }
+    }
+    function revokePreview(item) {
+      if (item && item.previewUrl) {
+        URL.revokeObjectURL(item.previewUrl);
+        item.previewUrl = "";
+      }
     }
     function showComposerStatus(msg) {
       const el = $("composerStatus");
@@ -496,7 +598,15 @@
       box.innerHTML = "";
       for (const item of state.pendingFiles) {
         const chip = document.createElement("span");
-        chip.className = "file-chip";
+        chip.className = "file-chip" + (isImageFile(item.file) ? " is-image" : "");
+        if (isImageFile(item.file)) {
+          if (!item.previewUrl) item.previewUrl = URL.createObjectURL(item.file);
+          const thumb = document.createElement("img");
+          thumb.className = "thumb";
+          thumb.alt = "";
+          thumb.src = item.previewUrl;
+          chip.appendChild(thumb);
+        }
         const fn = document.createElement("span");
         fn.className = "fn";
         fn.textContent = item.file.name;
@@ -511,6 +621,7 @@
         x.setAttribute("aria-label", "Remove " + item.file.name);
         x.textContent = "✕";
         x.addEventListener("click", () => {
+          revokePreview(item);
           state.pendingFiles = state.pendingFiles.filter((f) => f.id !== item.id);
           renderAttachList();
         });
@@ -522,10 +633,15 @@
       const errors = [];
       for (const file of fileList || []) {
         if (!isAllowedFile(file)) {
-          errors.push(file.name + " is not a supported document type.");
+          errors.push(file.name + " is not a supported image or document type. Images can be JPEG, PNG, GIF, or WebP.");
           continue;
         }
-        if (file.size > MAX_FILE_BYTES) {
+        if (isImageFile(file)) {
+          if (file.size > MAX_IMAGE_BYTES) {
+            errors.push(file.name + " is larger than 20 MB, the xAI image limit.");
+            continue;
+          }
+        } else if (file.size > MAX_FILE_BYTES) {
           errors.push(file.name + " is larger than 50 MB.");
           continue;
         }
@@ -536,6 +652,44 @@
       }
       renderAttachList();
       showComposerStatus(errors.join(" "));
+    }
+    function slimConversations(convos) {
+      return (convos || []).map((c) => ({
+        ...c,
+        messages: (c.messages || []).map((m) => {
+          if (!(m.attachments || []).some((a) => a && a.dataUrl)) return m;
+          return {
+            ...m,
+            attachments: m.attachments.map((a) => {
+              if (!a || !a.dataUrl) return a;
+              const copy = { ...a };
+              delete copy.dataUrl;
+              return copy;
+            })
+          };
+        })
+      }));
+    }
+    function convoRecency(list) {
+      let msgs = 0, last = 0, images = 0;
+      for (const c of list || []) {
+        for (const m of c.messages || []) {
+          msgs += 1;
+          if (m.ts > last) last = m.ts;
+          if ((m.attachments || []).some((a) => a && a.dataUrl)) images += 1;
+        }
+      }
+      return { msgs, last, images };
+    }
+    function preferConvoList(a, b) {
+      const lists = [a, b].filter((list) => Array.isArray(list) && list.length);
+      if (!lists.length) return [];
+      if (lists.length === 1) return lists[0];
+      const ra = convoRecency(a);
+      const rb = convoRecency(b);
+      if (ra.last !== rb.last) return ra.last >= rb.last ? a : b;
+      if (ra.images !== rb.images) return ra.images > rb.images ? a : b;
+      return ra.msgs >= rb.msgs ? a : b;
     }
 
     function migrateStorage() {
@@ -658,13 +812,11 @@
     }
     async function loadConvos() {
       migrateStorage();
-      let list = [];
-      try { list = JSON.parse(localStorage.getItem(K.convos) || "[]"); }
-      catch { list = []; }
-      if (!Array.isArray(list) || !list.length) {
-        const fromIdb = await idbGet("conversations");
-        if (Array.isArray(fromIdb) && fromIdb.length) list = fromIdb;
-      }
+      let fromLs = [];
+      try { fromLs = JSON.parse(localStorage.getItem(K.convos) || "[]"); }
+      catch { fromLs = []; }
+      const fromIdb = await idbGet("conversations");
+      const list = preferConvoList(fromIdb, fromLs);
       state.conversations = list;
       if (!state.conversations.length) {
         const first = makeConvo("general");
@@ -682,7 +834,7 @@
     }
     function persistConvos() {
       try {
-        localStorage.setItem(K.convos, JSON.stringify(state.conversations));
+        localStorage.setItem(K.convos, JSON.stringify(slimConversations(state.conversations)));
         if (state.activeId) localStorage.setItem(K.active, state.activeId);
       } catch {}
       idbSet("conversations", state.conversations);
@@ -790,12 +942,10 @@
         const initial = who[0];
         const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
         const pendingLabel = m.upload
-          ? "Uploading document…"
+          ? (m.upload === "image" ? "Preparing image…" : "Uploading attachment…")
           : (m.searching ? "Searching live sources…" : "AskNelson is thinking…");
         const filesHtml = (m.attachments && m.attachments.length)
-          ? `<div class="msg-files">${m.attachments.map((f) =>
-              `<span class="file-chip" title="${escapeHtml(f.filename || "")}"><span class="fn">${escapeHtml(f.filename || "document")}</span></span>`
-            ).join("")}</div>`
+          ? `<div class="msg-files">${m.attachments.map(attachmentHtml).join("")}</div>`
           : "";
         const sources = Array.isArray(m.sources) ? m.sources.filter(Boolean) : [];
         const sourcesHtml = sources.length
@@ -819,6 +969,25 @@
       return String(s).replace(/[&<>"']/g, (ch) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       }[ch]));
+    }
+    function attachmentHtml(f) {
+      if (f && f.kind === "image" && f.dataUrl) {
+        return `<a class="msg-thumb-link" href="${escapeHtml(f.dataUrl)}" target="_blank" rel="noopener"><img class="msg-thumb" src="${escapeHtml(f.dataUrl)}" alt="${escapeHtml(f.filename || "image")}"></a>`;
+      }
+      return `<span class="file-chip" title="${escapeHtml((f && f.filename) || "")}"><span class="fn">${escapeHtml((f && f.filename) || "document")}</span></span>`;
+    }
+    function defaultAttachmentPrompt(attachments) {
+      const list = attachments || [];
+      const images = list.filter((a) => a.kind === "image").length;
+      const docs = list.length - images;
+      if (images && docs) return "Please review the attached images and documents.";
+      if (images > 1) return "What's in these images?";
+      if (images === 1) return "What's in this image?";
+      if (docs > 1) return "Please review the attached documents.";
+      return "Please review the attached document.";
+    }
+    function hasImageAttachments(messages, pending) {
+      return (messages || []).some((m) => m !== pending && (m.attachments || []).some((a) => a && a.kind === "image" && a.dataUrl));
     }
 
     function fillModels() {
@@ -942,7 +1111,11 @@
           const parts = [];
           if (m.content) parts.push({ type: "input_text", text: m.content });
           for (const f of m.attachments || []) {
-            if (f.id) parts.push({ type: "input_file", file_id: f.id });
+            if (f.kind === "image" && f.dataUrl) {
+              parts.push({ type: "input_image", image_url: f.dataUrl, detail: "high" });
+            } else if (f.id) {
+              parts.push({ type: "input_file", file_id: f.id });
+            }
           }
           if (!parts.length) continue;
           input.push({ role: "user", content: parts });
@@ -1006,9 +1179,18 @@
       const c = active();
       const userMsg = { role: "user", content: text, ts: Date.now(), attachments: [] };
       c.messages.push(userMsg);
-      const pending = { role: "assistant", content: "", ts: Date.now(), pending: true, upload: !!toUpload.length };
+      const pending = {
+        role: "assistant",
+        content: "",
+        ts: Date.now(),
+        pending: true,
+        upload: toUpload.length
+          ? (toUpload.every((item) => isImageFile(item.file)) ? "image" : "file")
+          : false
+      };
       c.messages.push(pending);
       $("input").value = "";
+      state.pendingFiles.forEach(revokePreview);
       state.pendingFiles = [];
       autosize();
       renderAttachList();
@@ -1023,21 +1205,29 @@
       try {
         if (toUpload.length) {
           for (const item of toUpload) {
-            const meta = await uploadFile(item.file, s, ctrl.signal);
-            userMsg.attachments.push({
-              id: meta.id,
-              filename: meta.filename || item.file.name,
-              bytes: meta.bytes || item.file.size
-            });
+            if (isImageFile(item.file)) {
+              const dataUrl = await imageToDataUrl(item.file);
+              userMsg.attachments.push({
+                kind: "image",
+                filename: item.file.name,
+                bytes: item.file.size,
+                mime: item.file.type || "",
+                dataUrl
+              });
+            } else {
+              const meta = await uploadFile(item.file, s, ctrl.signal);
+              userMsg.attachments.push({
+                kind: "file",
+                id: meta.id,
+                filename: meta.filename || item.file.name,
+                bytes: meta.bytes || item.file.size
+              });
+            }
             persistConvos();
             renderMain();
           }
           pending.upload = false;
-          if (!userMsg.content) {
-            userMsg.content = userMsg.attachments.length === 1
-              ? "Please review the attached document."
-              : "Please review the attached documents.";
-          }
+          if (!userMsg.content) userMsg.content = defaultAttachmentPrompt(userMsg.attachments);
           persistConvos();
           renderMain();
         }
@@ -1053,6 +1243,7 @@
             stream: true
           };
           if (tools.length) payload.tools = tools;
+          if (hasImageAttachments(c.messages, pending)) payload.store = false;
           res = await apiPostJson("/responses", payload, s, ctrl.signal, "text/event-stream");
         } else {
           const messages = [
