@@ -32,6 +32,7 @@
     const $ = (id) => document.getElementById(id);
     const MAX_FILE_BYTES = 50 * 1024 * 1024;
     const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+    const REMOVED_PLACEHOLDER = "This message was removed";
     const FILE_EXTS = /\.(pdf|txt|text|md|markdown|csv|tsv|json|xml|html|htm|rtf|log|yml|yaml|toml|ini|cfg|conf|py|js|mjs|cjs|ts|tsx|jsx|java|c|cc|cpp|h|hpp|cs|go|rs|rb|php|sh|bash|zsh|sql|css|scss|less|docx?|xlsx?|pptx?)$/i;
     const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|bmp)$/i;
     const IMAGE_MIMES = /^image\/(jpeg|jpg|png|gif|webp|bmp)$/i;
@@ -174,6 +175,7 @@
     };
     let pendingImport = null;
     let noteSaveTimer = null;
+    let confirmResolver = null;
 
     function todayISO(d) {
       return (d || new Date()).toLocaleDateString("en-CA", { timeZone: TZ });
@@ -598,20 +600,23 @@
       if (!m.id) m.id = crypto.randomUUID();
       if (!Array.isArray(m.replies)) m.replies = [];
       else m.replies.forEach(ensureMessageShape);
+      if (m.deleted) {
+        m.deleted = true;
+        m.content = REMOVED_PLACEHOLDER;
+        m.attachments = [];
+        delete m.sources;
+        delete m.toolLog;
+      }
       return m;
-    }
-    function collectMessageIds(list, into) {
-      const ids = into || new Set();
-      walkMessages(list, (m) => { if (m && m.id) ids.add(m.id); });
-      return ids;
     }
     function ensureConvoShape(c) {
       if (!c || typeof c !== "object") return c;
       if (!Array.isArray(c.messages)) c.messages = [];
       c.messages.forEach(ensureMessageShape);
-      const ids = collectMessageIds(c.messages);
+      const live = new Set();
+      walkMessages(c.messages, (m) => { if (m && m.id && !m.deleted) live.add(m.id); });
       const src = Array.isArray(c.pinnedIds) ? c.pinnedIds : [];
-      c.pinnedIds = src.filter((id, i) => typeof id === "string" && ids.has(id) && src.indexOf(id) === i);
+      c.pinnedIds = src.filter((id, i) => typeof id === "string" && live.has(id) && src.indexOf(id) === i);
       return c;
     }
     function findMessage(c, id) {
@@ -629,7 +634,8 @@
     }
     function togglePin(id) {
       const c = active();
-      if (!c || !id || !findMessage(c, id)) return;
+      const hit = c && id && findMessage(c, id);
+      if (!hit || hit.msg.deleted) return;
       if (!Array.isArray(c.pinnedIds)) c.pinnedIds = [];
       const i = c.pinnedIds.indexOf(id);
       if (i >= 0) c.pinnedIds.splice(i, 1);
@@ -637,7 +643,102 @@
       persistConvos();
       renderChat();
     }
+    function unpinId(c, id) {
+      if (!c || !id || !Array.isArray(c.pinnedIds)) return;
+      c.pinnedIds = c.pinnedIds.filter((x) => x !== id);
+    }
+    function softDeleteMessage(m) {
+      if (!m) return;
+      m.deleted = true;
+      m.content = REMOVED_PLACEHOLDER;
+      m.attachments = [];
+      delete m.sources;
+      delete m.toolLog;
+      delete m.pending;
+      delete m.searching;
+      delete m.toolRunning;
+      delete m.upload;
+    }
+    function dropMessageFromList(list, id) {
+      if (!list) return false;
+      const i = list.findIndex((m) => m && m.id === id);
+      if (i < 0) return false;
+      list.splice(i, 1);
+      return true;
+    }
+    function clearPointerIds(id) {
+      if (state.highlightMsgId === id) state.highlightMsgId = null;
+    }
+    function pruneDeletedParent(c, parent) {
+      if (!c || !parent || !parent.deleted) return false;
+      if (parent.replies && parent.replies.length) return false;
+      dropMessageFromList(c.messages, parent.id);
+      unpinId(c, parent.id);
+      clearPointerIds(parent.id);
+      if (state.openThreadId === parent.id) closeThread({ keepHighlight: true });
+      return true;
+    }
+    function removeMessage(id) {
+      const c = active();
+      if (!c || !id) return;
+      const hit = findMessage(c, id);
+      if (!hit || !hit.msg || hit.msg.pending || hit.msg.deleted) return;
+      const msg = hit.msg;
+      const parent = hit.parent;
+      if (parent) {
+        dropMessageFromList(parent.replies || [], id);
+        unpinId(c, id);
+        clearPointerIds(id);
+        pruneDeletedParent(c, parent);
+      } else if (msg.replies && msg.replies.length) {
+        softDeleteMessage(msg);
+        unpinId(c, id);
+      } else {
+        dropMessageFromList(c.messages, id);
+        unpinId(c, id);
+        clearPointerIds(id);
+        if (state.openThreadId === id) closeThread();
+      }
+      persistConvos();
+      renderChat();
+    }
+    function closeConfirm(result) {
+      const modal = $("confirmModal");
+      if (modal) modal.classList.remove("open");
+      const resolve = confirmResolver;
+      confirmResolver = null;
+      if (resolve) resolve(!!result);
+    }
+    function askConfirm(opts) {
+      const options = opts || {};
+      return new Promise((resolve) => {
+        if (confirmResolver) closeConfirm(false);
+        confirmResolver = resolve;
+        const title = $("confirmTitle");
+        const body = $("confirmBody");
+        const ok = $("confirmOk");
+        if (title) title.textContent = options.title || "Remove this message?";
+        if (body) body.textContent = options.body || "This only removes it from this browser.";
+        if (ok) ok.textContent = options.okLabel || "Remove";
+        const modal = $("confirmModal");
+        if (modal) modal.classList.add("open");
+        const cancel = $("confirmCancel");
+        if (cancel) cancel.focus();
+      });
+    }
+    async function requestRemove(id) {
+      const c = active();
+      const hit = c && id && findMessage(c, id);
+      if (!hit || !hit.msg || hit.msg.pending || hit.msg.deleted) return;
+      const ok = await askConfirm({
+        title: "Remove this message?",
+        body: "This only removes it from this browser.",
+        okLabel: "Remove"
+      });
+      if (ok) removeMessage(id);
+    }
     function messageExcerpt(m, n) {
+      if (m && m.deleted) return REMOVED_PLACEHOLDER;
       const limit = n || 140;
       const t = String((m && m.content) || "").replace(/\s+/g, " ").trim();
       if (t) return t.length > limit ? t.slice(0, limit) + "\u2026" : t;
@@ -1167,7 +1268,7 @@
       return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }
     function shouldGroup(prev, cur) {
-      return prev && prev.role === cur.role && (cur.ts - prev.ts) < 5 * 60 * 1000;
+      return prev && cur && prev.role === cur.role && !prev.deleted && !cur.deleted && (cur.ts - prev.ts) < 5 * 60 * 1000;
     }
 
     function emptyBox(text) {
@@ -1512,46 +1613,53 @@
       const grouped = shouldGroup(prev, m);
       const el = document.createElement("article");
       const pinned = c && isPinned(c, m.id);
-      el.className = "msg" + (grouped ? " grouped" : "") + (pinned ? " is-pinned" : "");
+      el.className = "msg" + (grouped ? " grouped" : "") + (pinned ? " is-pinned" : "") + (m.deleted ? " is-deleted" : "");
       el.dataset.msgId = m.id;
       const who = messageWho(m);
       const avClass = m.role === "user" ? "you" : m.role === "assistant" ? "grok" : "error";
-      const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
+      const bodyClass = m.deleted ? "bubble" : (m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble"));
       const pendingLabel = m.upload
         ? (m.upload === "image" ? "Preparing image\u2026" : "Uploading attachment\u2026")
         : (m.toolRunning ? "Updating your workspace\u2026" : (m.searching ? "Searching live sources\u2026" : "AskNelson is thinking\u2026"));
-      const filesHtml = (m.attachments && m.attachments.length)
+      const filesHtml = (!m.deleted && m.attachments && m.attachments.length)
         ? `<div class="msg-files">${m.attachments.map(attachmentHtml).join("")}</div>`
         : "";
-      const sources = Array.isArray(m.sources) ? m.sources.filter(Boolean) : [];
+      const sources = (!m.deleted && Array.isArray(m.sources)) ? m.sources.filter(Boolean) : [];
       const sourcesHtml = sources.length
         ? `<div class="msg-sources"><strong>Sources</strong><ol>${sources.map((u) =>
             `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(u)}</a></li>`
           ).join("")}</ol></div>`
         : "";
-      const toolsHtml = (m.toolLog && m.toolLog.length)
+      const toolsHtml = (!m.deleted && m.toolLog && m.toolLog.length)
         ? `<div class="msg-tools">${m.toolLog.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}</div>`
         : "";
       const pinLabel = pinned ? "Unpin" : "Pin";
-      const replyBtn = options.inThread ? "" : `<button type="button" class="tiny" data-action="reply" data-id="${escapeHtml(m.id)}">Reply</button>`;
+      const canAct = !m.deleted;
+      const replyBtn = (canAct && !options.inThread) ? `<button type="button" class="tiny" data-action="reply" data-id="${escapeHtml(m.id)}">Reply</button>` : "";
+      const removeBtn = (canAct && !m.pending) ? `<button type="button" class="tiny danger" data-action="remove" data-id="${escapeHtml(m.id)}">Remove</button>` : "";
       const replies = m.replies || [];
       const replyCount = (!options.inThread && replies.length)
         ? `<button type="button" class="thread-count" data-action="open-thread" data-id="${escapeHtml(m.id)}"><span class="thread-n">${replies.length} ${replies.length === 1 ? "reply" : "replies"}</span><span class="thread-last">${escapeHtml(fmtTime(replies[replies.length - 1].ts))}</span></button>`
         : "";
       const pinFlag = pinned ? `<span class="pin-flag" title="Pinned">📌</span>` : "";
+      const actions = canAct
+        ? `<div class="msg-actions">
+              <button type="button" class="tiny" data-action="pin" data-id="${escapeHtml(m.id)}">${pinLabel}</button>
+              ${replyBtn}
+              ${removeBtn}
+            </div>`
+        : "";
+      const bodyHtml = m.deleted ? escapeHtml(REMOVED_PLACEHOLDER) : (m.pending && !m.content ? pendingLabel : md(m.content));
       el.innerHTML = `
           <div>${grouped ? "" : `<div class="avatar ${avClass}">${escapeHtml(who[0])}</div>`}</div>
           <div>
             ${grouped ? (pinned ? `<div class="meta">${pinFlag}</div>` : "") : `<div class="meta"><span class="who">${escapeHtml(who)}</span><span class="when">${escapeHtml(fmtTime(m.ts))}</span>${pinFlag}</div>`}
-            <div class="${bodyClass}">${m.pending && !m.content ? pendingLabel : md(m.content)}</div>
+            <div class="${bodyClass}">${bodyHtml}</div>
             ${toolsHtml}
             ${filesHtml}
             ${sourcesHtml}
             ${replyCount}
-            <div class="msg-actions">
-              <button type="button" class="tiny" data-action="pin" data-id="${escapeHtml(m.id)}">${pinLabel}</button>
-              ${replyBtn}
-            </div>
+            ${actions}
           </div>`;
       return el;
     }
@@ -1712,14 +1820,16 @@
       }
       function parseImportedMessage(m) {
         if (!m || !m.role) return null;
+        const deleted = !!m.deleted;
         return {
           id: String(m.id || crypto.randomUUID()),
           role: m.role,
-          content: String(m.content || ""),
+          content: deleted ? REMOVED_PLACEHOLDER : String(m.content || ""),
           ts: Number(m.ts) || Date.now(),
-          attachments: Array.isArray(m.attachments) ? m.attachments : [],
-          sources: Array.isArray(m.sources) ? m.sources.filter((u) => typeof u === "string") : undefined,
-          toolLog: Array.isArray(m.toolLog) ? m.toolLog.map(String) : undefined,
+          attachments: deleted ? [] : (Array.isArray(m.attachments) ? m.attachments : []),
+          sources: deleted ? undefined : (Array.isArray(m.sources) ? m.sources.filter((u) => typeof u === "string") : undefined),
+          toolLog: deleted ? undefined : (Array.isArray(m.toolLog) ? m.toolLog.map(String) : undefined),
+          deleted: deleted || undefined,
           replies: Array.isArray(m.replies) ? m.replies.map(parseImportedMessage).filter(Boolean) : []
         };
       }
@@ -1893,6 +2003,10 @@
       const input = [];
       for (const m of messages) {
         if (m === pending) continue;
+        if (m.deleted) {
+          input.push({ role: m.role === "assistant" ? "assistant" : "user", content: REMOVED_PLACEHOLDER });
+          continue;
+        }
         if (m.role === "user") {
           const parts = [];
           if (m.content) parts.push({ type: "input_text", text: m.content });
@@ -2448,6 +2562,12 @@
         const id = btn.dataset.id;
         if (action === "pin") togglePin(id);
         else if (action === "reply" || action === "open-thread") openThread(id);
+        else if (action === "remove") requestRemove(id);
+      });
+      $("confirmCancel").addEventListener("click", () => closeConfirm(false));
+      $("confirmOk").addEventListener("click", () => closeConfirm(true));
+      $("confirmModal").addEventListener("click", (e) => {
+        if (e.target === $("confirmModal")) closeConfirm(false);
       });
       document.addEventListener("click", (e) => {
         if (!state.pinsOpen) return;
@@ -2457,6 +2577,7 @@
       document.addEventListener("keydown", (e) => {
         if (e.key !== "Escape") return;
         if ($("modal").classList.contains("open") || $("importModal").classList.contains("open")) return;
+        if ($("confirmModal") && $("confirmModal").classList.contains("open")) { closeConfirm(false); return; }
         if (state.pinsOpen) { closePins(); return; }
         if (state.openThreadId) closeThread();
       });
