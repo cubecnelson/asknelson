@@ -604,10 +604,17 @@
       display: flex;
       flex-direction: column;
       min-width: 0;
+      min-height: 0;
       border-left: 1px solid var(--line);
       background: var(--panel);
     }
     .thread-pane[hidden], .pins-panel[hidden] { display: none !important; }
+    .chat-split.thread-maximized .chat-main { display: none; }
+    .chat-split.thread-maximized .thread-pane {
+      flex: 1 1 auto;
+      width: auto;
+      border-left: 0;
+    }
     .thread-header {
       display: flex;
       align-items: flex-start;
@@ -617,6 +624,7 @@
       border-bottom: 1px solid var(--line);
       flex-shrink: 0;
     }
+    .thread-heading { min-width: 0; flex: 1; }
     .thread-header h3 {
       margin: 0;
       font-size: 15px;
@@ -626,6 +634,22 @@
       color: var(--text);
     }
     .thread-sub { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+    .thread-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .thread-header-actions .ghost {
+      padding: 4px 10px;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    .thread-back { display: none; }
+    .chat-split.thread-maximized .thread-back { display: inline-flex; }
+    .chat-split.thread-maximized .thread-maximize { display: none; }
+    .thread-header .icon-btn { color: var(--muted); }
+    .thread-header .icon-btn:hover { background: #ffffff10; color: var(--text); }
     .thread-pane .messages { padding-bottom: 12px; }
     .thread-divider {
       display: flex;
@@ -723,6 +747,14 @@
       .notes-layout.editing .note-editor { display: flex; }
       .note-back { display: grid; }
       .page { padding: 16px 16px 40px; }
+      .chat-split.with-thread .chat-main { display: none; }
+      .chat-split.with-thread .thread-pane {
+        flex: 1 1 auto;
+        width: auto;
+        border-left: 0;
+      }
+      .thread-maximize { display: none !important; }
+      .thread-back { display: inline-flex !important; }
     }
   </style>
 </head>
@@ -840,11 +872,15 @@
           </div>
           <aside class="thread-pane" id="threadPane" hidden>
             <div class="thread-header">
-              <div>
+              <div class="thread-heading">
                 <h3>Thread</h3>
                 <p class="thread-sub" id="threadSub"></p>
               </div>
-              <button class="icon-btn" id="closeThread" type="button" title="Close thread" aria-label="Close thread">×</button>
+              <div class="thread-header-actions">
+                <button class="ghost thread-back" id="threadBack" type="button">Back</button>
+                <button class="ghost thread-maximize" id="threadMaximize" type="button" aria-label="Maximize thread">Maximize</button>
+                <button class="icon-btn" id="closeThread" type="button" title="Close thread" aria-label="Close thread">×</button>
+              </div>
             </div>
             <div class="messages" id="threadMessages"></div>
             <div class="composer-wrap">

@@ -169,6 +169,7 @@
       noteQuery: "",
       notePreview: false,
       openThreadId: null,
+      threadMaximized: false,
       pinsOpen: false,
       highlightMsgId: null,
       threadPendingFiles: []
@@ -822,13 +823,31 @@
       updatePinsButton(active());
       renderPinsPanel();
     }
+    function applyThreadLayout() {
+      const split = $("chatSplit");
+      if (!split) return;
+      const open = !!(state.view === "channels" && state.openThreadId);
+      split.classList.toggle("with-thread", open);
+      split.classList.toggle("thread-maximized", open && !!state.threadMaximized);
+    }
+    function isMobileThreadLayout() {
+      return window.matchMedia("(max-width: 720px)").matches;
+    }
+    function setThreadMaximized(on) {
+      state.threadMaximized = !!on;
+      applyThreadLayout();
+    }
+    function onThreadBack() {
+      if (isMobileThreadLayout()) closeThread();
+      else setThreadMaximized(false);
+    }
     function closeThread(opts) {
       state.openThreadId = null;
+      state.threadMaximized = false;
       if (!(opts && opts.keepHighlight)) state.highlightMsgId = null;
       const pane = $("threadPane");
       if (pane) pane.hidden = true;
-      const split = $("chatSplit");
-      if (split) split.classList.remove("with-thread");
+      applyThreadLayout();
     }
     function openThread(parentId, highlightId) {
       const c = active();
@@ -836,6 +855,7 @@
       const hit = findMessage(c, parentId);
       if (!hit) return;
       const parent = hit.parent || hit.msg;
+      if (state.openThreadId !== parent.id) state.threadMaximized = false;
       state.openThreadId = parent.id;
       if (highlightId) state.highlightMsgId = highlightId;
       state.pinsOpen = false;
@@ -1666,13 +1686,12 @@
     function renderThreadPane() {
       const pane = $("threadPane");
       const box = $("threadMessages");
-      const split = $("chatSplit");
       const sub = $("threadSub");
       const c = active();
       if (!pane || !box) return;
       if (state.view !== "channels" || !c || !state.openThreadId) {
         pane.hidden = true;
-        if (split) split.classList.remove("with-thread");
+        applyThreadLayout();
         return;
       }
       const hit = findMessage(c, state.openThreadId);
@@ -1681,9 +1700,12 @@
         closeThread();
         return;
       }
-      if (state.openThreadId !== parent.id) state.openThreadId = parent.id;
+      if (state.openThreadId !== parent.id) {
+        state.openThreadId = parent.id;
+        state.threadMaximized = false;
+      }
       pane.hidden = false;
-      if (split) split.classList.add("with-thread");
+      applyThreadLayout();
       if (sub) sub.textContent = messageWho(parent) + " \u00b7 " + messageExcerpt(parent, 48);
       box.innerHTML = "";
       box.appendChild(messageEl(parent, null, { inThread: true, isParent: true }));
@@ -2555,6 +2577,8 @@
         closePins();
       });
       $("closeThread").addEventListener("click", () => closeThread());
+      $("threadMaximize").addEventListener("click", () => setThreadMaximized(true));
+      $("threadBack").addEventListener("click", () => onThreadBack());
       $("viewChat").addEventListener("click", (e) => {
         const btn = e.target.closest("[data-action]");
         if (!btn || !$("viewChat").contains(btn)) return;
@@ -2579,6 +2603,7 @@
         if ($("modal").classList.contains("open") || $("importModal").classList.contains("open")) return;
         if ($("confirmModal") && $("confirmModal").classList.contains("open")) { closeConfirm(false); return; }
         if (state.pinsOpen) { closePins(); return; }
+        if (state.openThreadId && state.threadMaximized && !isMobileThreadLayout()) { setThreadMaximized(false); return; }
         if (state.openThreadId) closeThread();
       });
       $("menuBtn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
