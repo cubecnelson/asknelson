@@ -21,6 +21,8 @@ This page talks to the official xAI API from your browser. It is not an embed of
 - **Tasks** is a local task list: title, optional notes, optional due date, status (to-do / in progress / done), and optional priority (normal / high). Filters are Inbox (open, no due date), Today, Upcoming, Overdue, and Done. You can add, edit, complete, and delete tasks inline.
 - **Notes** are local markdown notes with a title and body, a searchable list, an editor, optional pinning, and a safe preview (the same Markdown + DOMPurify renderer used in chat — raw HTML is not injected).
 - **Channels** keep the existing Grok chat: rooms, the model picker, Settings, live web/X search, image upload + vision, document upload, drag-and-drop, and Sources under replies. The mobile sidebar still slides open from the menu button.
+- **Pinned messages** are per channel. Hover a message (or use the buttons under it on mobile) and click Pin or Unpin. A pin marker appears on the message, and **Pins** in the channel header opens a list of pinned messages. Click one to jump to it in the transcript, or unpin it from the panel.
+- **Threads** are Slack-style replies. Click Reply on a channel message to open a thread pane; the parent stays in the main channel, and replies live on that parent. A compact “N replies” control under the parent opens the same thread. The thread has its own composer, including attachments, drag-and-drop, and Enter to send. When you reply in a thread, AskNelson is given earlier channel messages up to the parent, then the thread replies, so it knows what is being discussed.
 
 AskNelson is still a slightly witty assistant named AskNelson, now with tools to operate this workspace.
 
@@ -28,7 +30,7 @@ AskNelson is still a slightly witty assistant named AskNelson, now with tools to
 
 Your API key is stored only in this browser (the Credential Management API when available, plus local storage and IndexedDB). Chat rooms, tasks, and notes are stored the same way, so they come back the next time you open the page. Image bytes stay in IndexedDB with the conversation; they are not stored in the GitHub repo or on GitHub Pages. Nothing is sent to the proxy except the API request you already make for chat, search, or file upload.
 
-In Settings you can **Export** a JSON backup of tasks, notes, conversations, and settings. The API key is **not** included in the backup. **Import** can merge with existing workspace data or replace tasks, notes, and conversations (with a confirm). Invalid files are rejected and leave the current workspace unchanged. Import never overwrites your API key.
+In Settings you can **Export** a JSON backup of tasks, notes, conversations (including pinned messages and threads), and settings. The API key is **not** included in the backup. **Import** can merge with existing workspace data or replace tasks, notes, and conversations (with a confirm). Invalid files are rejected and leave the current workspace unchanged. Import never overwrites your API key.
 
 If you used the earlier Grok Chatbox name in this same browser, your existing key and rooms are migrated automatically. The IndexedDB database stays at version 1 (`asknelson` / `kv`); tasks, notes, and the last view are extra keys in that same store, so existing chats and the API key are not wiped.
 

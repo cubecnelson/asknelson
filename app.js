@@ -166,7 +166,11 @@
       editingTaskId: null,
       activeNoteId: null,
       noteQuery: "",
-      notePreview: false
+      notePreview: false,
+      openThreadId: null,
+      pinsOpen: false,
+      highlightMsgId: null,
+      threadPendingFiles: []
     };
     let pendingImport = null;
     let noteSaveTimer = null;
@@ -270,15 +274,24 @@
         item.previewUrl = "";
       }
     }
-    function showComposerStatus(msg) {
-      const el = $("composerStatus");
+    function pendingKey(which) {
+      return which === "thread" ? "threadPendingFiles" : "pendingFiles";
+    }
+    function showComposerStatus(msg, which) {
+      const el = $((which === "thread" ? "threadComposerStatus" : "composerStatus"));
       if (el) el.textContent = msg || "";
     }
-    function renderAttachList() {
-      const box = $("attachList");
+    function renderAttachList(which) {
+      if (!which) {
+        renderAttachList("main");
+        renderAttachList("thread");
+        return;
+      }
+      const box = $((which === "thread" ? "threadAttachList" : "attachList"));
       if (!box) return;
+      const list = state[pendingKey(which)] || [];
       box.innerHTML = "";
-      for (const item of state.pendingFiles) {
+      for (const item of list) {
         const chip = document.createElement("span");
         chip.className = "file-chip" + (isImageFile(item.file) ? " is-image" : "");
         if (isImageFile(item.file)) {
@@ -304,14 +317,16 @@
         x.textContent = "\u2715";
         x.addEventListener("click", () => {
           revokePreview(item);
-          state.pendingFiles = state.pendingFiles.filter((f) => f.id !== item.id);
-          renderAttachList();
+          state[pendingKey(which)] = (state[pendingKey(which)] || []).filter((f) => f.id !== item.id);
+          renderAttachList(which);
         });
         chip.append(fn, sz, x);
         box.appendChild(chip);
       }
     }
-    function addPendingFiles(fileList) {
+    function addPendingFiles(fileList, which) {
+      which = which || "main";
+      const key = pendingKey(which);
       const errors = [];
       for (const file of fileList || []) {
         if (!isAllowedFile(file)) {
@@ -327,39 +342,51 @@
           errors.push(file.name + " is larger than 50 MB.");
           continue;
         }
-        if (state.pendingFiles.some((f) => f.file.name === file.name && f.file.size === file.size && f.file.lastModified === file.lastModified)) {
+        if ((state[key] || []).some((f) => f.file.name === file.name && f.file.size === file.size && f.file.lastModified === file.lastModified)) {
           continue;
         }
-        state.pendingFiles.push({ id: crypto.randomUUID(), file });
+        state[key].push({ id: crypto.randomUUID(), file });
       }
-      renderAttachList();
-      showComposerStatus(errors.join(" "));
+      renderAttachList(which);
+      showComposerStatus(errors.join(" "), which);
+    }
+    function slimMessage(m) {
+      const replies = (m.replies || []).map(slimMessage);
+      const atts = m.attachments || [];
+      if (!atts.some((a) => a && a.dataUrl)) {
+        return { ...m, replies };
+      }
+      return {
+        ...m,
+        replies,
+        attachments: atts.map((a) => {
+          if (!a || !a.dataUrl) return a;
+          const copy = { ...a };
+          delete copy.dataUrl;
+          return copy;
+        })
+      };
     }
     function slimConversations(convos) {
       return (convos || []).map((c) => ({
         ...c,
-        messages: (c.messages || []).map((m) => {
-          if (!(m.attachments || []).some((a) => a && a.dataUrl)) return m;
-          return {
-            ...m,
-            attachments: m.attachments.map((a) => {
-              if (!a || !a.dataUrl) return a;
-              const copy = { ...a };
-              delete copy.dataUrl;
-              return copy;
-            })
-          };
-        })
+        messages: (c.messages || []).map(slimMessage)
       }));
+    }
+    function walkMessages(list, fn) {
+      for (const m of list || []) {
+        fn(m);
+        if (m.replies && m.replies.length) walkMessages(m.replies, fn);
+      }
     }
     function convoRecency(list) {
       let msgs = 0, last = 0, images = 0;
       for (const c of list || []) {
-        for (const m of c.messages || []) {
+        walkMessages(c.messages, (m) => {
           msgs += 1;
           if (m.ts > last) last = m.ts;
           if ((m.attachments || []).some((a) => a && a.dataUrl)) images += 1;
-        }
+        });
       }
       return { msgs, last, images };
     }
@@ -455,9 +482,13 @@
         liveX: s.liveX !== false
       };
     }
-    function requestInstructions(s) {
-      return (s.systemPrompt || DEFAULT_PROMPT)
+    function requestInstructions(s, threadParent) {
+      let text = (s.systemPrompt || DEFAULT_PROMPT)
         + "\n\nToday is " + formatLongDate() + " (Asia/Hong_Kong). The workspace tools operate on the user's local tasks and notes in this browser.";
+      if (threadParent) {
+        text += "\n\nThe user is replying in a thread. The input includes earlier channel messages up to the parent message being discussed, then the thread replies after that parent. Stay focused on the thread topic unless asked otherwise.";
+      }
+      return text;
     }
     function saveSettingsObj(s) {
       localStorage.setItem(K.settings, JSON.stringify(s));
@@ -517,7 +548,7 @@
       catch { fromLs = []; }
       const fromIdb = await idbGet("conversations");
       const list = preferConvoList(fromIdb, fromLs);
-      state.conversations = list;
+      state.conversations = (list || []).map((c) => ensureConvoShape(c));
       if (!state.conversations.length) {
         const first = makeConvo("general");
         state.conversations = [first];
@@ -545,11 +576,202 @@
         id: crypto.randomUUID(),
         name: name || "new-chat",
         messages: [],
+        pinnedIds: [],
         createdAt: Date.now()
       };
     }
     function active() {
       return state.conversations.find((c) => c.id === state.activeId);
+    }
+    function makeMessage(fields) {
+      return Object.assign({
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "",
+        ts: Date.now(),
+        attachments: [],
+        replies: []
+      }, fields || {});
+    }
+    function ensureMessageShape(m) {
+      if (!m || typeof m !== "object") return m;
+      if (!m.id) m.id = crypto.randomUUID();
+      if (!Array.isArray(m.replies)) m.replies = [];
+      else m.replies.forEach(ensureMessageShape);
+      return m;
+    }
+    function collectMessageIds(list, into) {
+      const ids = into || new Set();
+      walkMessages(list, (m) => { if (m && m.id) ids.add(m.id); });
+      return ids;
+    }
+    function ensureConvoShape(c) {
+      if (!c || typeof c !== "object") return c;
+      if (!Array.isArray(c.messages)) c.messages = [];
+      c.messages.forEach(ensureMessageShape);
+      const ids = collectMessageIds(c.messages);
+      const src = Array.isArray(c.pinnedIds) ? c.pinnedIds : [];
+      c.pinnedIds = src.filter((id, i) => typeof id === "string" && ids.has(id) && src.indexOf(id) === i);
+      return c;
+    }
+    function findMessage(c, id) {
+      if (!c || !id) return null;
+      for (const m of c.messages || []) {
+        if (m.id === id) return { msg: m, parent: null };
+        for (const r of m.replies || []) {
+          if (r.id === id) return { msg: r, parent: m };
+        }
+      }
+      return null;
+    }
+    function isPinned(c, id) {
+      return !!(c && Array.isArray(c.pinnedIds) && c.pinnedIds.includes(id));
+    }
+    function togglePin(id) {
+      const c = active();
+      if (!c || !id || !findMessage(c, id)) return;
+      if (!Array.isArray(c.pinnedIds)) c.pinnedIds = [];
+      const i = c.pinnedIds.indexOf(id);
+      if (i >= 0) c.pinnedIds.splice(i, 1);
+      else c.pinnedIds.push(id);
+      persistConvos();
+      renderChat();
+    }
+    function messageExcerpt(m, n) {
+      const limit = n || 140;
+      const t = String((m && m.content) || "").replace(/\s+/g, " ").trim();
+      if (t) return t.length > limit ? t.slice(0, limit) + "\u2026" : t;
+      const atts = (m && m.attachments) || [];
+      if (atts.length) return atts.map((a) => a.filename || a.kind || "attachment").join(", ");
+      return "(No text)";
+    }
+    function messageWho(m) {
+      return m && m.role === "user" ? "You" : m && m.role === "assistant" ? "AskNelson" : "Error";
+    }
+    function setSendingUi(on) {
+      state.sending = on;
+      if ($("send")) $("send").disabled = on;
+      if ($("threadSend")) $("threadSend").disabled = on;
+    }
+    function closePins() {
+      state.pinsOpen = false;
+      const panel = $("pinsPanel");
+      if (panel) panel.hidden = true;
+      const btn = $("pinsBtn");
+      if (btn) btn.classList.remove("is-on");
+    }
+    function updatePinsButton(c) {
+      const btn = $("pinsBtn");
+      if (!btn) return;
+      const show = state.view === "channels" && !!c;
+      btn.hidden = !show;
+      const n = (c && c.pinnedIds && c.pinnedIds.length) || 0;
+      btn.textContent = n ? "Pins (" + n + ")" : "Pins";
+      btn.classList.toggle("is-on", !!(show && state.pinsOpen));
+      btn.setAttribute("aria-expanded", show && state.pinsOpen ? "true" : "false");
+    }
+    function renderPinsPanel() {
+      const panel = $("pinsPanel");
+      const list = $("pinsList");
+      const c = active();
+      if (!panel || !list) return;
+      if (!state.pinsOpen || state.view !== "channels" || !c) {
+        panel.hidden = true;
+        return;
+      }
+      panel.hidden = false;
+      list.innerHTML = "";
+      const ids = (c.pinnedIds || []).slice().reverse();
+      const found = [];
+      for (const id of ids) {
+        const hit = findMessage(c, id);
+        if (hit) found.push({ id, ...hit });
+      }
+      if (!found.length) {
+        list.innerHTML = `<div class="pins-empty">No pinned messages in this channel. Hover a message (or use the buttons under it on mobile) and click Pin.</div>`;
+        return;
+      }
+      for (const item of found) {
+        const row = document.createElement("div");
+        row.className = "pin-item";
+        row.tabIndex = 0;
+        row.setAttribute("role", "button");
+        row.innerHTML = `<div class="pin-meta"><span></span></div><div class="pin-ex"></div>`;
+        row.querySelector(".pin-meta span").textContent = messageWho(item.msg) + " · " + fmtTime(item.msg.ts) + (item.parent ? " · thread" : "");
+        row.querySelector(".pin-ex").textContent = messageExcerpt(item.msg);
+        row.addEventListener("click", () => jumpToMessage(item.id));
+        row.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); jumpToMessage(item.id); }
+        });
+        const unpin = document.createElement("button");
+        unpin.type = "button";
+        unpin.className = "unpin";
+        unpin.textContent = "Unpin";
+        unpin.addEventListener("click", (e) => {
+          e.stopPropagation();
+          togglePin(item.id);
+        });
+        row.querySelector(".pin-meta").appendChild(unpin);
+        list.appendChild(row);
+      }
+    }
+    function openPins() {
+      if (state.view !== "channels") return;
+      state.pinsOpen = !state.pinsOpen;
+      updatePinsButton(active());
+      renderPinsPanel();
+    }
+    function closeThread(opts) {
+      state.openThreadId = null;
+      if (!(opts && opts.keepHighlight)) state.highlightMsgId = null;
+      const pane = $("threadPane");
+      if (pane) pane.hidden = true;
+      const split = $("chatSplit");
+      if (split) split.classList.remove("with-thread");
+    }
+    function openThread(parentId, highlightId) {
+      const c = active();
+      if (!c || !parentId) return;
+      const hit = findMessage(c, parentId);
+      if (!hit) return;
+      const parent = hit.parent || hit.msg;
+      state.openThreadId = parent.id;
+      if (highlightId) state.highlightMsgId = highlightId;
+      state.pinsOpen = false;
+      renderChat();
+      const input = $("threadInput");
+      if (input) input.focus();
+    }
+    function jumpToMessage(id) {
+      const c = active();
+      const hit = c && findMessage(c, id);
+      if (!hit) return;
+      closePins();
+      if (hit.parent) {
+        openThread(hit.parent.id, id);
+        return;
+      }
+      state.highlightMsgId = id;
+      if (state.view !== "channels") setView("channels");
+      else renderChat();
+    }
+    function threadContextMessages(c, parent, pending) {
+      const prior = [];
+      for (const m of c.messages || []) {
+        if (m === pending) continue;
+        prior.push(m);
+        if (m.id === parent.id) break;
+      }
+      const replies = (parent.replies || []).filter((m) => m !== pending);
+      return prior.concat(replies);
+    }
+    function applyHighlight(root) {
+      if (!state.highlightMsgId || !root) return false;
+      const el = root.querySelector('[data-msg-id="' + CSS.escape(state.highlightMsgId) + '"]');
+      if (!el) return false;
+      el.classList.add("msg-flash");
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      return true;
     }
 
     function normalizeDue(value) {
@@ -855,17 +1077,21 @@
 
     function setView(view, opts) {
       if (!["today", "tasks", "notes", "channels"].includes(view)) view = "today";
+      const prevId = state.activeId;
       state.view = view;
       if (opts && opts.channelId) {
         if (state.conversations.some((c) => c.id === opts.channelId)) state.activeId = opts.channelId;
         persistConvos();
       }
+      if (state.activeId !== prevId) closeThread();
+      if (view !== "channels") closePins();
       persistLastView();
       $("sidebar").classList.remove("open");
       $("viewToday").hidden = view !== "today";
       $("viewTasks").hidden = view !== "tasks";
       $("viewNotes").hidden = view !== "notes";
       $("viewChat").hidden = view !== "channels";
+      updatePinsButton(view === "channels" ? active() : null);
       renderNav();
       renderChannels();
       if (view === "today") renderToday();
@@ -1279,10 +1505,93 @@
       if (!(opts && opts.listOnly)) renderNoteEditor();
     }
 
+    function messageEl(m, prev, opts) {
+      const options = opts || {};
+      const c = active();
+      if (m && !m.id) m.id = crypto.randomUUID();
+      const grouped = shouldGroup(prev, m);
+      const el = document.createElement("article");
+      const pinned = c && isPinned(c, m.id);
+      el.className = "msg" + (grouped ? " grouped" : "") + (pinned ? " is-pinned" : "");
+      el.dataset.msgId = m.id;
+      const who = messageWho(m);
+      const avClass = m.role === "user" ? "you" : m.role === "assistant" ? "grok" : "error";
+      const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
+      const pendingLabel = m.upload
+        ? (m.upload === "image" ? "Preparing image\u2026" : "Uploading attachment\u2026")
+        : (m.toolRunning ? "Updating your workspace\u2026" : (m.searching ? "Searching live sources\u2026" : "AskNelson is thinking\u2026"));
+      const filesHtml = (m.attachments && m.attachments.length)
+        ? `<div class="msg-files">${m.attachments.map(attachmentHtml).join("")}</div>`
+        : "";
+      const sources = Array.isArray(m.sources) ? m.sources.filter(Boolean) : [];
+      const sourcesHtml = sources.length
+        ? `<div class="msg-sources"><strong>Sources</strong><ol>${sources.map((u) =>
+            `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(u)}</a></li>`
+          ).join("")}</ol></div>`
+        : "";
+      const toolsHtml = (m.toolLog && m.toolLog.length)
+        ? `<div class="msg-tools">${m.toolLog.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}</div>`
+        : "";
+      const pinLabel = pinned ? "Unpin" : "Pin";
+      const replyBtn = options.inThread ? "" : `<button type="button" class="tiny" data-action="reply" data-id="${escapeHtml(m.id)}">Reply</button>`;
+      const replies = m.replies || [];
+      const replyCount = (!options.inThread && replies.length)
+        ? `<button type="button" class="thread-count" data-action="open-thread" data-id="${escapeHtml(m.id)}"><span class="thread-n">${replies.length} ${replies.length === 1 ? "reply" : "replies"}</span><span class="thread-last">${escapeHtml(fmtTime(replies[replies.length - 1].ts))}</span></button>`
+        : "";
+      const pinFlag = pinned ? `<span class="pin-flag" title="Pinned">📌</span>` : "";
+      el.innerHTML = `
+          <div>${grouped ? "" : `<div class="avatar ${avClass}">${escapeHtml(who[0])}</div>`}</div>
+          <div>
+            ${grouped ? (pinned ? `<div class="meta">${pinFlag}</div>` : "") : `<div class="meta"><span class="who">${escapeHtml(who)}</span><span class="when">${escapeHtml(fmtTime(m.ts))}</span>${pinFlag}</div>`}
+            <div class="${bodyClass}">${m.pending && !m.content ? pendingLabel : md(m.content)}</div>
+            ${toolsHtml}
+            ${filesHtml}
+            ${sourcesHtml}
+            ${replyCount}
+            <div class="msg-actions">
+              <button type="button" class="tiny" data-action="pin" data-id="${escapeHtml(m.id)}">${pinLabel}</button>
+              ${replyBtn}
+            </div>
+          </div>`;
+      return el;
+    }
+    function renderThreadPane() {
+      const pane = $("threadPane");
+      const box = $("threadMessages");
+      const split = $("chatSplit");
+      const sub = $("threadSub");
+      const c = active();
+      if (!pane || !box) return;
+      if (state.view !== "channels" || !c || !state.openThreadId) {
+        pane.hidden = true;
+        if (split) split.classList.remove("with-thread");
+        return;
+      }
+      const hit = findMessage(c, state.openThreadId);
+      const parent = hit ? (hit.parent || hit.msg) : null;
+      if (!parent) {
+        closeThread();
+        return;
+      }
+      if (state.openThreadId !== parent.id) state.openThreadId = parent.id;
+      pane.hidden = false;
+      if (split) split.classList.add("with-thread");
+      if (sub) sub.textContent = messageWho(parent) + " \u00b7 " + messageExcerpt(parent, 48);
+      box.innerHTML = "";
+      box.appendChild(messageEl(parent, null, { inThread: true, isParent: true }));
+      const replies = parent.replies || [];
+      const div = document.createElement("div");
+      div.className = "thread-divider";
+      div.textContent = replies.length ? (replies.length + (replies.length === 1 ? " reply" : " replies")) : "Replies";
+      box.appendChild(div);
+      replies.forEach((m, i) => box.appendChild(messageEl(m, replies[i - 1], { inThread: true })));
+      if (!applyHighlight(box)) box.scrollTop = box.scrollHeight;
+    }
     function renderChat() {
       const c = active();
       if (!c) return;
       setTopbar("# " + escapeHtml(c.name), escapeHtml(loadSettings().model));
+      updatePinsButton(c);
       const box = $("messages");
       box.innerHTML = "";
       if (!getKey() && !c.messages.length) {
@@ -1291,48 +1600,27 @@
           <p>This is a personal productivity workspace powered by xAI Grok. Open Settings, paste an API key from <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>, then send a message \u2014 or add a task from Today.</p>
           <p>AskNelson can manage your tasks and notes from chat. Live web and X search are on by default. Your key, rooms, tasks, and notes stay in this browser. The key is never stored in the GitHub repo.</p>
         </div>`;
+        renderThreadPane();
+        renderPinsPanel();
         return;
       }
       if (!c.messages.length) {
         box.innerHTML = `<div class="empty"><h3>#${escapeHtml(c.name)}</h3><p>This channel is empty. Say hello, or ask AskNelson to add a task or a note.</p></div>`;
+        renderThreadPane();
+        renderPinsPanel();
         return;
       }
-      c.messages.forEach((m, i) => {
-        const prev = c.messages[i - 1];
-        const grouped = shouldGroup(prev, m);
-        const el = document.createElement("article");
-        el.className = "msg" + (grouped ? " grouped" : "");
-        const who = m.role === "user" ? "You" : m.role === "assistant" ? "AskNelson" : "Error";
-        const avClass = m.role === "user" ? "you" : m.role === "assistant" ? "grok" : "error";
-        const initial = who[0];
-        const bodyClass = m.role === "error" ? "bubble err" : (m.pending ? "bubble pending" : "bubble");
-        const pendingLabel = m.upload
-          ? (m.upload === "image" ? "Preparing image\u2026" : "Uploading attachment\u2026")
-          : (m.toolRunning ? "Updating your workspace\u2026" : (m.searching ? "Searching live sources\u2026" : "AskNelson is thinking\u2026"));
-        const filesHtml = (m.attachments && m.attachments.length)
-          ? `<div class="msg-files">${m.attachments.map(attachmentHtml).join("")}</div>`
-          : "";
-        const sources = Array.isArray(m.sources) ? m.sources.filter(Boolean) : [];
-        const sourcesHtml = sources.length
-          ? `<div class="msg-sources"><strong>Sources</strong><ol>${sources.map((u) =>
-              `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(u)}</a></li>`
-            ).join("")}</ol></div>`
-          : "";
-        const toolsHtml = (m.toolLog && m.toolLog.length)
-          ? `<div class="msg-tools">${m.toolLog.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}</div>`
-          : "";
-        el.innerHTML = `
-          <div>${grouped ? "" : `<div class="avatar ${avClass}">${initial}</div>`}</div>
-          <div>
-            ${grouped ? "" : `<div class="meta"><span class="who">${who}</span><span class="when">${fmtTime(m.ts)}</span></div>`}
-            <div class="${bodyClass}">${m.pending && !m.content ? pendingLabel : md(m.content)}</div>
-            ${toolsHtml}
-            ${filesHtml}
-            ${sourcesHtml}
-          </div>`;
-        box.appendChild(el);
-      });
-      box.scrollTop = box.scrollHeight;
+      c.messages.forEach((m, i) => box.appendChild(messageEl(m, c.messages[i - 1], {})));
+      const jumped = applyHighlight(box);
+      if (!jumped) box.scrollTop = box.scrollHeight;
+      renderThreadPane();
+      renderPinsPanel();
+      if (state.highlightMsgId) {
+        const hid = state.highlightMsgId;
+        setTimeout(() => {
+          if (state.highlightMsgId === hid) state.highlightMsgId = null;
+        }, 1800);
+      }
     }
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, (ch) => ({
@@ -1383,7 +1671,7 @@
       const settings = loadSettings();
       return {
         app: "asknelson",
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         tasks: state.tasks,
         notes: state.notes,
@@ -1422,18 +1710,25 @@
       if (!tasks.length && !notes.length && !conversations.length && !data.settings) {
         throw new Error("That file has no tasks, notes, conversations, or settings to import.");
       }
-      const cleanConvos = conversations.map((c, i) => ({
-        id: String(c.id || crypto.randomUUID()),
-        name: String(c.name || ("chat-" + (i + 1))).replace(/\s+/g, "-").replace(/^#/, "") || "chat",
-        createdAt: Number(c.createdAt) || Date.now(),
-        messages: Array.isArray(c.messages) ? c.messages.filter((m) => m && m.role).map((m) => ({
+      function parseImportedMessage(m) {
+        if (!m || !m.role) return null;
+        return {
+          id: String(m.id || crypto.randomUUID()),
           role: m.role,
           content: String(m.content || ""),
           ts: Number(m.ts) || Date.now(),
           attachments: Array.isArray(m.attachments) ? m.attachments : [],
           sources: Array.isArray(m.sources) ? m.sources.filter((u) => typeof u === "string") : undefined,
-          toolLog: Array.isArray(m.toolLog) ? m.toolLog.map(String) : undefined
-        })) : []
+          toolLog: Array.isArray(m.toolLog) ? m.toolLog.map(String) : undefined,
+          replies: Array.isArray(m.replies) ? m.replies.map(parseImportedMessage).filter(Boolean) : []
+        };
+      }
+      const cleanConvos = conversations.map((c, i) => ensureConvoShape({
+        id: String(c.id || crypto.randomUUID()),
+        name: String(c.name || ("chat-" + (i + 1))).replace(/\s+/g, "-").replace(/^#/, "") || "chat",
+        createdAt: Number(c.createdAt) || Date.now(),
+        pinnedIds: Array.isArray(c.pinnedIds) ? c.pinnedIds.filter((id) => typeof id === "string") : [],
+        messages: Array.isArray(c.messages) ? c.messages.map(parseImportedMessage).filter(Boolean) : []
       }));
       return {
         tasks,
@@ -1444,8 +1739,11 @@
       };
     }
     function lastMsgTs(c) {
-      const msgs = (c && c.messages) || [];
-      return msgs.reduce((m, x) => Math.max(m, Number(x.ts) || 0), Number(c && c.createdAt) || 0);
+      let last = Number(c && c.createdAt) || 0;
+      walkMessages((c && c.messages) || [], (x) => {
+        if (Number(x.ts) > last) last = Number(x.ts) || 0;
+      });
+      return last;
     }
     function mergeById(existing, incoming, pick) {
       const map = new Map();
@@ -1727,11 +2025,16 @@
       return { response: completed, functionCalls: [...functionCalls.values()] };
     }
 
-    async function sendMessage(presetText) {
+    async function sendMessage(presetText, opts) {
       if (state.sending) return;
+      const options = opts || {};
+      const threadParentId = options.threadParentId || null;
+      const which = threadParentId ? "thread" : "main";
+      const inputEl = $(which === "thread" ? "threadInput" : "input");
       const fromPreset = presetText != null;
-      const text = (fromPreset ? String(presetText) : $("input").value).trim();
-      const toUpload = fromPreset ? [] : state.pendingFiles.slice();
+      const text = (fromPreset ? String(presetText) : (inputEl ? inputEl.value : "")).trim();
+      const pendingKeyName = pendingKey(which);
+      const toUpload = fromPreset ? [] : (state[pendingKeyName] || []).slice();
       if (!text && !toUpload.length) return;
       if (!getKey()) {
         openSettings();
@@ -1746,9 +2049,17 @@
         persistConvos();
       }
       const c = active();
-      const userMsg = { role: "user", content: text, ts: Date.now(), attachments: [] };
-      c.messages.push(userMsg);
-      const pending = {
+      let threadParent = null;
+      if (threadParentId) {
+        const hit = findMessage(c, threadParentId);
+        threadParent = hit ? (hit.parent || hit.msg) : null;
+        if (!threadParent) return;
+        if (!Array.isArray(threadParent.replies)) threadParent.replies = [];
+      }
+      const targetList = threadParent ? threadParent.replies : c.messages;
+      const userMsg = makeMessage({ role: "user", content: text, ts: Date.now(), attachments: [] });
+      targetList.push(userMsg);
+      const pending = makeMessage({
         role: "assistant",
         content: "",
         ts: Date.now(),
@@ -1757,21 +2068,21 @@
           ? (toUpload.every((item) => isImageFile(item.file)) ? "image" : "file")
           : false,
         toolLog: []
-      };
-      c.messages.push(pending);
+      });
+      targetList.push(pending);
       if (!fromPreset) {
-        $("input").value = "";
-        state.pendingFiles.forEach(revokePreview);
-        state.pendingFiles = [];
-        autosize();
-        renderAttachList();
-        showComposerStatus("");
+        if (inputEl) inputEl.value = "";
+        (state[pendingKeyName] || []).forEach(revokePreview);
+        state[pendingKeyName] = [];
+        autosize(inputEl);
+        renderAttachList(which);
+        showComposerStatus("", which);
       }
       persistConvos();
+      if (threadParent && state.openThreadId !== threadParent.id) state.openThreadId = threadParent.id;
       if (state.view !== "channels") setView("channels");
       else renderChat();
-      state.sending = true;
-      $("send").disabled = true;
+      setSendingUi(true);
       const s = loadSettings();
       const ctrl = new AbortController();
       state.abort = ctrl;
@@ -1805,18 +2116,21 @@
           renderChat();
         }
         const tools = liveTools(s).concat(WORKSPACE_TOOLS);
-        const hasImages = hasImageAttachments(c.messages, pending);
-        let input = toResponsesInput(c.messages, pending);
+        const contextMessages = threadParent
+          ? threadContextMessages(c, threadParent, pending)
+          : c.messages;
+        const hasImages = hasImageAttachments(contextMessages, pending);
+        let input = toResponsesInput(contextMessages, pending);
         let previousId = null;
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
           const payload = {
             model: s.model || "grok-4.7",
-            instructions: requestInstructions(s),
+            instructions: requestInstructions(s, threadParent),
             input,
             stream: true,
             tools
           };
-          if (c.id) payload.prompt_cache_key = c.id;
+          if (c.id) payload.prompt_cache_key = threadParent ? (c.id + ":t:" + threadParent.id) : c.id;
           if (hasImages || !previousId) {
             if (hasImages) {
               payload.store = false;
@@ -1867,41 +2181,41 @@
         if (err.name === "AbortError") {
           if (!pending.content) pending.content = "(Stopped)";
         } else {
-          c.messages.pop();
+          targetList.pop();
           const uploaded = (userMsg.attachments || []).length;
           if (toUpload.length && uploaded < toUpload.length) {
-            state.pendingFiles = toUpload.slice(uploaded).concat(state.pendingFiles);
-            renderAttachList();
+            state[pendingKeyName] = toUpload.slice(uploaded).concat(state[pendingKeyName] || []);
+            renderAttachList(which);
             if (!uploaded && !text) {
-              c.messages.pop();
-              $("input").value = text;
-              autosize();
+              targetList.pop();
+              if (inputEl) inputEl.value = text;
+              autosize(inputEl);
             }
           }
           const cors = isCorsFailure(err);
-          c.messages.push({
+          targetList.push(makeMessage({
             role: "error",
             content: cors
               ? "The browser blocked the request to api.x.ai (CORS preflight failed). AskNelson will retry through a small proxy once it is deployed; you can also paste a proxy API base URL in Settings. If you use Microsoft Edge, try turning off Tracking Prevention for this site, or use Chrome."
               : "Request failed: " + (err.message || err),
             ts: Date.now()
-          });
+          }));
         }
       } finally {
         pending.pending = false;
         pending.toolRunning = false;
-        state.sending = false;
         state.abort = null;
-        $("send").disabled = false;
+        setSendingUi(false);
         persistConvos();
         renderChat();
         refreshWorkspace();
-        $("input").focus();
+        if (inputEl) inputEl.focus();
       }
     }
 
-    function autosize() {
-      const el = $("input");
+    function autosize(el) {
+      el = el || $("input");
+      if (!el) return;
       el.style.height = "auto";
       el.style.height = Math.min(el.scrollHeight, 160) + "px";
     }
@@ -1920,6 +2234,8 @@
         const c = makeConvo("chat-" + (state.conversations.length + 1));
         state.conversations.unshift(c);
         state.activeId = c.id;
+        closeThread();
+        closePins();
         persistConvos();
         setView("channels");
         $("input").focus();
@@ -2072,35 +2388,77 @@
         saveSettingsObj(s);
         if (state.view === "channels") renderChat();
       });
-      $("send").addEventListener("click", () => sendMessage());
-      $("input").addEventListener("input", autosize);
-      $("input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
+      function bindComposer(which) {
+        const isThread = which === "thread";
+        const input = $(isThread ? "threadInput" : "input");
+        const send = $(isThread ? "threadSend" : "send");
+        const attachBtn = $(isThread ? "threadAttachBtn" : "attachBtn");
+        const fileInput = $(isThread ? "threadFileInput" : "fileInput");
+        const composer = $(isThread ? "threadComposer" : "composer");
+        if (!input || !send || !attachBtn || !fileInput || !composer) return;
+        send.addEventListener("click", () => {
+          if (isThread && !state.openThreadId) return;
+          sendMessage(null, isThread ? { threadParentId: state.openThreadId } : {});
+        });
+        input.addEventListener("input", () => autosize(input));
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (isThread && !state.openThreadId) return;
+            sendMessage(null, isThread ? { threadParentId: state.openThreadId } : {});
+          }
+        });
+        attachBtn.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", () => {
+          addPendingFiles(fileInput.files, which);
+          fileInput.value = "";
+        });
+        composer.addEventListener("dragover", (e) => {
+          if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) {
+            e.preventDefault();
+            composer.classList.add("dragover");
+          }
+        });
+        composer.addEventListener("dragleave", (e) => {
+          if (!composer.contains(e.relatedTarget)) composer.classList.remove("dragover");
+        });
+        composer.addEventListener("drop", (e) => {
           e.preventDefault();
-          sendMessage();
-        }
+          composer.classList.remove("dragover");
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+            addPendingFiles(e.dataTransfer.files, which);
+          }
+        });
+      }
+      bindComposer("main");
+      bindComposer("thread");
+      $("pinsBtn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openPins();
       });
-      $("attachBtn").addEventListener("click", () => $("fileInput").click());
-      $("fileInput").addEventListener("change", () => {
-        addPendingFiles($("fileInput").files);
-        $("fileInput").value = "";
+      $("closePins").addEventListener("click", (e) => {
+        e.stopPropagation();
+        closePins();
       });
-      const composer = $("composer");
-      composer.addEventListener("dragover", (e) => {
-        if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) {
-          e.preventDefault();
-          composer.classList.add("dragover");
-        }
+      $("closeThread").addEventListener("click", () => closeThread());
+      $("viewChat").addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-action]");
+        if (!btn || !$("viewChat").contains(btn)) return;
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+        if (action === "pin") togglePin(id);
+        else if (action === "reply" || action === "open-thread") openThread(id);
       });
-      composer.addEventListener("dragleave", (e) => {
-        if (!composer.contains(e.relatedTarget)) composer.classList.remove("dragover");
+      document.addEventListener("click", (e) => {
+        if (!state.pinsOpen) return;
+        if (e.target.closest("#pinsPanel") || e.target.closest("#pinsBtn")) return;
+        closePins();
       });
-      composer.addEventListener("drop", (e) => {
-        e.preventDefault();
-        composer.classList.remove("dragover");
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
-          addPendingFiles(e.dataTransfer.files);
-        }
+      document.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        if ($("modal").classList.contains("open") || $("importModal").classList.contains("open")) return;
+        if (state.pinsOpen) { closePins(); return; }
+        if (state.openThreadId) closeThread();
       });
       $("menuBtn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
     }
